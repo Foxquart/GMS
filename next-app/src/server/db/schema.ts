@@ -1,0 +1,301 @@
+import {
+  pgTable,
+  uuid,
+  varchar,
+  text,
+  timestamp,
+  integer,
+  numeric,
+  boolean,
+  index,
+  pgEnum,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
+
+// ─── Enums ───────────────────────────────────────────────────────────
+export const vehicleTypeEnum = pgEnum("vehicle_type", [
+  "CAR",
+  "BIKE",
+  "SCOOTY",
+  "AUTO",
+  "OTHER",
+]);
+
+export const jobStatusEnum = pgEnum("job_status", [
+  "OPEN",
+  "COMPLETED",
+  "CANCELLED",
+]);
+
+export const locationTypeEnum = pgEnum("location_type", [
+  "WAREHOUSE",
+  "SHOP",
+]);
+
+export const movementTypeEnum = pgEnum("movement_type", [
+  "STOCK_IN",
+  "JOB_USAGE",
+  "TRANSFER_IN",
+  "TRANSFER_OUT",
+  "RETURN",
+  "DAMAGE",
+  "ADJUSTMENT",
+]);
+
+export const invoiceStatusEnum = pgEnum("invoice_status", [
+  "ISSUED",
+  "PARTIALLY_PAID",
+  "PAID",
+  "CANCELLED",
+]);
+
+export const paymentMethodEnum = pgEnum("payment_method", [
+  "CASH",
+  "UPI",
+  "CARD",
+  "BANK_TRANSFER",
+  "OTHER",
+]);
+
+// ─── Users ───────────────────────────────────────────────────────────
+export const users = pgTable("users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: varchar("name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  passwordHash: text("password_hash").notNull(),
+  role: varchar("role", { length: 50 }).notNull().default("admin"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_users_email").on(table.email),
+]);
+
+// ─── Customers ───────────────────────────────────────────────────────
+export const customers = pgTable("customers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: varchar("name", { length: 255 }).notNull(),
+  phone: varchar("phone", { length: 20 }).notNull(),
+  address: text("address"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_customers_phone").on(table.phone),
+  index("idx_customers_name").on(table.name),
+]);
+
+// ─── Vehicles (minimal) ──────────────────────────────────────────────
+export const vehicles = pgTable("vehicles", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  customerId: uuid("customer_id").notNull().references(() => customers.id),
+  vehicleType: vehicleTypeEnum("vehicle_type").notNull().default("OTHER"),
+  vehicleName: varchar("vehicle_name", { length: 255 }),
+  registrationNumber: varchar("registration_number", { length: 20 }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_vehicles_customer_id").on(table.customerId),
+]);
+
+// ─── Categories ──────────────────────────────────────────────────────
+export const categories = pgTable("categories", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  isArchived: boolean("is_archived").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── Suppliers ───────────────────────────────────────────────────────
+export const suppliers = pgTable("suppliers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: varchar("name", { length: 255 }).notNull(),
+  phone: varchar("phone", { length: 20 }),
+  address: text("address"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── Parts ───────────────────────────────────────────────────────────
+export const parts = pgTable("parts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  categoryId: uuid("category_id").references(() => categories.id),
+  supplierId: uuid("supplier_id").references(() => suppliers.id),
+  name: varchar("name", { length: 255 }).notNull(),
+  partNumber: varchar("part_number", { length: 100 }),
+  brand: varchar("brand", { length: 100 }),
+  purchasePrice: numeric("purchase_price", { precision: 10, scale: 2 }).notNull().default("0"),
+  sellingPrice: numeric("selling_price", { precision: 10, scale: 2 }).notNull().default("0"),
+  minimumShopStock: integer("minimum_shop_stock").notNull().default(5),
+  minimumWarehouseStock: integer("minimum_warehouse_stock").notNull().default(10),
+  unit: varchar("unit", { length: 20 }).notNull().default("pcs"),
+  barcode: varchar("barcode", { length: 100 }),
+  description: text("description"),
+  isArchived: boolean("is_archived").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_parts_name").on(table.name),
+  index("idx_parts_part_number").on(table.partNumber),
+  index("idx_parts_category_id").on(table.categoryId),
+]);
+
+// ─── Inventory Locations ─────────────────────────────────────────────
+export const inventoryLocations = pgTable("inventory_locations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: varchar("name", { length: 100 }).notNull(),
+  code: varchar("code", { length: 20 }).notNull().unique(),
+  locationType: locationTypeEnum("location_type").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── Inventory Balances ──────────────────────────────────────────────
+export const inventoryBalances = pgTable("inventory_balances", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  partId: uuid("part_id").notNull().references(() => parts.id),
+  locationId: uuid("location_id").notNull().references(() => inventoryLocations.id),
+  quantity: integer("quantity").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_inventory_balances_part_id").on(table.partId),
+  index("idx_inventory_balances_location_id").on(table.locationId),
+  uniqueIndex("idx_inventory_balances_part_location").on(table.partId, table.locationId),
+]);
+
+// ─── Stock Movements ─────────────────────────────────────────────────
+export const stockMovements = pgTable("stock_movements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  partId: uuid("part_id").notNull().references(() => parts.id),
+  locationId: uuid("location_id").notNull().references(() => inventoryLocations.id),
+  movementType: movementTypeEnum("movement_type").notNull(),
+  quantity: integer("quantity").notNull(),
+  referenceType: varchar("reference_type", { length: 50 }),
+  referenceId: uuid("reference_id"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_stock_movements_part_id").on(table.partId),
+  index("idx_stock_movements_created_at").on(table.createdAt),
+]);
+
+// ─── Stock Transfers ─────────────────────────────────────────────────
+export const stockTransfers = pgTable("stock_transfers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  fromLocationId: uuid("from_location_id").notNull().references(() => inventoryLocations.id),
+  toLocationId: uuid("to_location_id").notNull().references(() => inventoryLocations.id),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const stockTransferItems = pgTable("stock_transfer_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  transferId: uuid("transfer_id").notNull().references(() => stockTransfers.id),
+  partId: uuid("part_id").notNull().references(() => parts.id),
+  quantity: integer("quantity").notNull(),
+});
+
+// ─── Jobs ────────────────────────────────────────────────────────────
+export const jobs = pgTable("jobs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  jobNumber: varchar("job_number", { length: 20 }).notNull().unique(),
+  customerId: uuid("customer_id").notNull().references(() => customers.id),
+  vehicleId: uuid("vehicle_id").references(() => vehicles.id),
+  complaint: text("complaint"),
+  workNotes: text("work_notes"),
+  odometerReading: varchar("odometer_reading", { length: 20 }),
+  status: jobStatusEnum("status").notNull().default("OPEN"),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_jobs_job_number").on(table.jobNumber),
+  index("idx_jobs_status").on(table.status),
+  index("idx_jobs_customer_id").on(table.customerId),
+  index("idx_jobs_vehicle_id").on(table.vehicleId),
+]);
+
+// ─── Job Labour ──────────────────────────────────────────────────────
+export const jobLabour = pgTable("job_labour", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  jobId: uuid("job_id").notNull().references(() => jobs.id),
+  description: varchar("description", { length: 255 }).notNull(),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── Job Parts (price snapshot) ──────────────────────────────────────
+export const jobParts = pgTable("job_parts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  jobId: uuid("job_id").notNull().references(() => jobs.id),
+  partId: uuid("part_id").notNull().references(() => parts.id),
+  partName: varchar("part_name", { length: 255 }).notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPrice: numeric("unit_price", { precision: 10, scale: 2 }).notNull(),
+  totalPrice: numeric("total_price", { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── Invoices ────────────────────────────────────────────────────────
+export const invoices = pgTable("invoices", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  invoiceNumber: varchar("invoice_number", { length: 30 }).notNull().unique(),
+  jobId: uuid("job_id").notNull().references(() => jobs.id),
+  customerId: uuid("customer_id").notNull().references(() => customers.id),
+  vehicleId: uuid("vehicle_id").references(() => vehicles.id),
+  subtotal: numeric("subtotal", { precision: 10, scale: 2 }).notNull().default("0"),
+  discount: numeric("discount", { precision: 10, scale: 2 }).notNull().default("0"),
+  total: numeric("total", { precision: 10, scale: 2 }).notNull().default("0"),
+  paidAmount: numeric("paid_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+  dueAmount: numeric("due_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+  status: invoiceStatusEnum("status").notNull().default("ISSUED"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_invoices_invoice_number").on(table.invoiceNumber),
+  index("idx_invoices_customer_id").on(table.customerId),
+  index("idx_invoices_created_at").on(table.createdAt),
+  index("idx_invoices_status").on(table.status),
+]);
+
+// ─── Invoice Items ───────────────────────────────────────────────────
+export const invoiceItems = pgTable("invoice_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  invoiceId: uuid("invoice_id").notNull().references(() => invoices.id),
+  itemType: varchar("item_type", { length: 20 }).notNull(),
+  description: varchar("description", { length: 255 }).notNull(),
+  quantity: numeric("quantity", { precision: 10, scale: 2 }).notNull().default("1"),
+  unitPrice: numeric("unit_price", { precision: 10, scale: 2 }).notNull(),
+  totalPrice: numeric("total_price", { precision: 10, scale: 2 }).notNull(),
+});
+
+// ─── Payments ────────────────────────────────────────────────────────
+export const payments = pgTable("payments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  invoiceId: uuid("invoice_id").notNull().references(() => invoices.id),
+  customerId: uuid("customer_id").notNull().references(() => customers.id),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  paymentMethod: paymentMethodEnum("payment_method").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_payments_customer_id").on(table.customerId),
+  index("idx_payments_invoice_id").on(table.invoiceId),
+]);
+
+// ─── Settings ────────────────────────────────────────────────────────
+export const settings = pgTable("settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  businessName: varchar("business_name", { length: 255 }).notNull().default("My Garage"),
+  businessPhone: varchar("business_phone", { length: 50 }),
+  businessAddress: text("business_address"),
+  invoicePrefix: varchar("invoice_prefix", { length: 10 }).notNull().default("INV"),
+  invoiceTerms: text("invoice_terms"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
