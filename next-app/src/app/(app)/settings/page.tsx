@@ -69,7 +69,7 @@ export default function SettingsPage() {
     <div className="mx-auto max-w-xl space-y-6">
       <div className="border-b border-[#e2e8f0]/50 pb-4">
         <h1 className="flex items-center gap-2 text-2xl font-black tracking-tight text-[#0f172a]">
-          <Settings size={24} className="text-[#5865f2]" /> Server & Workshop Settings
+          <Settings size={24} className="text-[#5865f2]" /> Workshop Settings
         </h1>
         <p className="text-xs font-semibold text-[#64748b]">Configure business profile and invoice settings</p>
       </div>

@@ -70,6 +70,7 @@ export function AppNav() {
           <div className="space-y-0.5">
             {CHANNELS.map((item) => {
               const active = isActive(item.href);
+              const Icon = item.icon;
               return (
                 <Link
                   key={item.href}
@@ -88,7 +89,7 @@ export function AppNav() {
                       active ? "h-5 opacity-100" : "h-0 opacity-0 group-hover:h-2 group-hover:opacity-60",
                     )}
                   />
-                  {/* <Hash size={18} className={cn(active ? "text-[#5865f2]" : "text-[#94a3b8] group-hover:text-[#0f172a]")} /> */}
+                  <Icon size={18} className={cn(active ? "text-[#5865f2]" : "text-[#94a3b8] group-hover:text-[#0f172a]")} />
                   <span className="capitalize">{item.label}</span>
                 </Link>
               );

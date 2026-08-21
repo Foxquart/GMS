@@ -424,27 +424,27 @@ export default function JobDetailPage() {
       </Sheet>
 
       {/* Add labour sheet */}
-      <Sheet open={addLabourOpen} onClose={() => setAddLabourOpen(false)} title="Add Labour">
-        <div className="space-y-3">
+      <Sheet open={addLabourOpen} onClose={() => setAddLabourOpen(false)} title="Add Labour Charge">
+        <div className="space-y-4">
           <div>
-            <span className="mb-1 block text-sm font-medium text-slate-700">Description</span>
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-[#64748b]">Description *</span>
             <Input
               value={labourDesc}
               onChange={(e) => setLabourDesc(e.target.value)}
-              placeholder="e.g. Brake Service"
+              placeholder="e.g. Engine Tuning / Brake Service"
             />
           </div>
           <div>
-            <span className="mb-1 block text-sm font-medium text-slate-700">Amount (₹)</span>
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-[#64748b]">Amount (₹) *</span>
             <Input
               type="number"
               value={labourAmount}
               onChange={(e) => setLabourAmount(e.target.value)}
-              placeholder="0"
+              placeholder="0.00"
             />
           </div>
-          <Button className="w-full" onClick={() => addLabour.mutate()} disabled={!labourDesc || !labourAmount || addLabour.isPending}>
-            Add Labour
+          <Button className="w-full h-11 font-bold" onClick={() => addLabour.mutate()} disabled={!labourDesc || !labourAmount || addLabour.isPending}>
+            {addLabour.isPending ? "Adding..." : "Add Labour to Job"}
           </Button>
         </div>
       </Sheet>
@@ -452,18 +452,18 @@ export default function JobDetailPage() {
       {/* Transfer sheet */}
       <Sheet open={transferOpen} onClose={() => setTransferOpen(false)} title="Move Stock to Shop">
         {transferPart && (
-          <div className="space-y-3">
-            <div className="rounded-xl bg-slate-50 p-3 text-sm">
-              <p className="font-medium text-slate-900">Part {parts?.find((p: any) => p.id === transferPart.partId)?.name}</p>
-              <p className="text-slate-500">
-                Shop has {transferPart.shopStock}, required {transferPart.required}. Moving{" "}
-                {Math.max(1, transferPart.required - transferPart.shopStock)} from Warehouse.
+          <div className="space-y-4">
+            <div className="rounded-xl border border-[#e2e8f0] bg-[#f8fafc] p-3.5 text-xs text-[#0f172a]">
+              <p className="font-bold text-sm text-[#0f172a] mb-1">Part: {parts?.find((p: any) => p.id === transferPart.partId)?.name}</p>
+              <p className="text-[#64748b]">
+                Shop has <strong className="text-[#0f172a]">{transferPart.shopStock}</strong>, required <strong className="text-[#0f172a]">{transferPart.required}</strong>. Moving{" "}
+                <strong className="text-[#5865f2]">{Math.max(1, transferPart.required - transferPart.shopStock)}</strong> unit(s) from Warehouse.
               </p>
             </div>
-            <Button className="w-full" onClick={() => transfer.mutate(transferPart)} disabled={transfer.isPending}>
-              <MoveRight size={16} /> Move to Shop
+            <Button className="w-full h-11 font-bold" onClick={() => transfer.mutate(transferPart)} disabled={transfer.isPending}>
+              <MoveRight size={16} /> Move Stock to Shop
             </Button>
-            <Button variant="ghost" className="w-full" onClick={() => setTransferOpen(false)}>
+            <Button variant="ghost" className="w-full font-bold" onClick={() => setTransferOpen(false)}>
               Cancel
             </Button>
           </div>
@@ -471,33 +471,39 @@ export default function JobDetailPage() {
       </Sheet>
 
       {/* Complete job sheet */}
-      <Sheet open={completeOpen} onClose={() => setCompleteOpen(false)} title="Complete Job">
+      <Sheet open={completeOpen} onClose={() => setCompleteOpen(false)} title="Complete Job & Billing">
         <div className="space-y-4">
-          <div className="rounded-xl bg-slate-50 p-3">
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-500">Subtotal</span>
-              <span className="font-semibold text-slate-900">{currency(total)}</span>
+          <div className="rounded-2xl border border-[#e2e8f0] bg-[#f8fafc] p-4 space-y-2">
+            <div className="flex justify-between text-xs font-semibold text-[#64748b]">
+              <span>Subtotal</span>
+              <span className="font-bold text-[#0f172a]">{currency(total)}</span>
             </div>
-            <div className="mt-1 flex justify-between text-sm">
-              <span className="text-slate-500">Discount</span>
+            <div className="flex items-center justify-between text-xs font-semibold text-[#64748b]">
+              <span>Discount (₹)</span>
               <Input
                 type="number"
-                className="h-7 w-24 text-right"
+                className="h-8 w-24 text-right text-xs font-bold"
                 value={discount}
                 onChange={(e) => setDiscount(e.target.value)}
               />
             </div>
-            <div className="mt-2 flex justify-between border-t border-slate-200 pt-2">
-              <span className="font-semibold text-slate-900">Total</span>
-              <span className="font-bold text-slate-900">{currency(Math.max(0, total - Number(discount || 0)))}</span>
+            <div className="flex justify-between border-t border-[#e2e8f0] pt-2 text-sm">
+              <span className="font-bold text-[#0f172a]">Final Total</span>
+              <span className="font-black text-[#5865f2] text-lg">{currency(Math.max(0, total - Number(discount || 0)))}</span>
             </div>
           </div>
 
           <div>
-            <span className="mb-1 block text-sm font-medium text-slate-700">Payment</span>
-            <div className="grid grid-cols-3 gap-2">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-[#64748b]">Payment Type</span>
+            <div className="relative flex rounded-xl bg-[#f1f5f9] p-1 border border-[#e2e8f0] select-none">
+              <div
+                className="absolute top-1 bottom-1 w-[calc(33.33%-2px)] rounded-lg bg-[#5865f2] shadow-sm transition-transform duration-300 ease-out"
+                style={{
+                  transform: `translateX(${["paid", "partial", "credit"].indexOf(payType) * 100}%)`,
+                }}
+              />
               {[
-                { id: "paid", label: "Paid" },
+                { id: "paid", label: "Full Paid" },
                 { id: "partial", label: "Partial" },
                 { id: "credit", label: "Credit" },
               ].map((o) => (
@@ -505,11 +511,10 @@ export default function JobDetailPage() {
                   key={o.id}
                   type="button"
                   onClick={() => setPayType(o.id)}
-                  className={
-                    payType === o.id
-                      ? "rounded-xl bg-blue-600 py-2 text-sm font-semibold text-white"
-                      : "rounded-xl border border-slate-300 py-2 text-sm font-semibold text-slate-600"
-                  }
+                  className={cn(
+                    "relative z-10 flex flex-1 items-center justify-center py-2 text-xs font-extrabold uppercase transition-colors duration-200 cursor-pointer select-none",
+                    payType === o.id ? "text-white" : "text-[#64748b] hover:text-[#0f172a]"
+                  )}
                 >
                   {o.label}
                 </button>
@@ -519,19 +524,21 @@ export default function JobDetailPage() {
 
           {payType !== "credit" && (
             <div>
-              <span className="mb-1 block text-sm font-medium text-slate-700">
-                Amount Paid {payType === "paid" ? "" : "(₹)"}
+              <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-[#64748b]">
+                Amount Paid {payType === "paid" ? "(Full)" : "(₹)"}
               </span>
               {payType === "paid" ? (
-                <p className="text-sm font-bold text-slate-900">{currency(Math.max(0, total - Number(discount || 0)))}</p>
+                <div className="rounded-xl border border-[#e2e8f0] bg-[#f8fafc] px-3.5 py-2.5 text-sm font-bold text-[#16a34a]">
+                  {currency(Math.max(0, total - Number(discount || 0)))}
+                </div>
               ) : (
-                <Input type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder="0" />
+                <Input type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder="0.00" />
               )}
             </div>
           )}
 
           <div>
-            <span className="mb-1 block text-sm font-medium text-slate-700">Payment Method</span>
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-[#64748b]">Payment Method</span>
             <Select value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
               {PAYMENT_METHODS.map((m) => (
                 <option key={m} value={m}>
@@ -541,9 +548,9 @@ export default function JobDetailPage() {
             </Select>
           </div>
 
-          <Button className="w-full" size="lg" onClick={() => complete.mutate()} disabled={complete.isPending}>
+          <Button className="w-full h-11 font-bold text-base" size="lg" onClick={() => complete.mutate()} disabled={complete.isPending}>
             <CheckCircle2 size={18} />
-            {complete.isPending ? "Completing..." : "Save Invoice"}
+            {complete.isPending ? "Completing Job..." : "Complete & Generate Invoice"}
           </Button>
         </div>
       </Sheet>

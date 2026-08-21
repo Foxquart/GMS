@@ -3,9 +3,9 @@
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Wrench, FileText, Phone } from "lucide-react";
+import { ArrowLeft, Wrench, FileText, Phone, MessageCircle, Plus } from "lucide-react";
 import { api } from "@/lib/api";
-import { Card, Badge, Skeleton, EmptyState, ErrorState } from "@/components/ui";
+import { Card, Badge, Skeleton, EmptyState, ErrorState, Button } from "@/components/ui";
 import { currency, formatDate, jobStatusLabel, vehicleTypeLabel, invoiceStatusLabel } from "@/lib/format";
 
 export default function CustomerDetailPage() {
@@ -39,18 +39,47 @@ export default function CustomerDetailPage() {
 
   const { customer, stats, jobs, invoices, vehicles } = data;
 
+  const phoneDigits = (customer.phone ?? "").replace(/[^0-9]/g, "");
+  const formattedWaPhone = phoneDigits.length === 10 ? `91${phoneDigits}` : phoneDigits;
+
   return (
     <div className="mx-auto max-w-2xl space-y-4">
-      <div className="flex items-center gap-2">
-        <button onClick={() => router.back()} className="rounded-lg p-2 hover:bg-slate-100" aria-label="Back">
-          <ArrowLeft size={20} />
-        </button>
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">{customer.name}</h1>
-          <p className="flex items-center gap-1 text-sm text-slate-500">
-            <Phone size={12} /> {customer.phone}
-          </p>
+      <div className="flex items-center justify-between gap-2 border-b border-[#e2e8f0]/50 pb-3">
+        <div className="flex items-center gap-2">
+          <button onClick={() => router.back()} className="rounded-lg p-2 hover:bg-slate-100 cursor-pointer" aria-label="Back">
+            <ArrowLeft size={20} />
+          </button>
+          <div>
+            <h1 className="text-xl font-black text-[#0f172a]">{customer.name}</h1>
+            <p className="flex items-center gap-1 text-xs font-semibold text-[#64748b]">
+              <Phone size={12} /> {customer.phone}
+            </p>
+          </div>
         </div>
+        <Link href={`/jobs/new?customerId=${id}`}>
+          <Button size="sm" className="font-bold">
+            <Plus size={14} /> New Job
+          </Button>
+        </Link>
+      </div>
+
+      {/* Quick Action Buttons */}
+      <div className="flex gap-2">
+        <a href={`tel:${customer.phone}`} className="flex-1">
+          <Button variant="outline" size="sm" className="w-full font-bold gap-1.5">
+            <Phone size={14} className="text-[#5865f2]" /> Call
+          </Button>
+        </a>
+        <a
+          href={`https://wa.me/${formattedWaPhone}?text=${encodeURIComponent(`Hello ${customer.name}, regarding your service at our workshop:`)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex-1"
+        >
+          <Button variant="outline" size="sm" className="w-full font-bold gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50">
+            <MessageCircle size={14} /> WhatsApp
+          </Button>
+        </a>
       </div>
 
       <div className="grid grid-cols-3 gap-3">

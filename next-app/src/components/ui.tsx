@@ -1,5 +1,6 @@
 import { forwardRef } from "react";
 import { ChevronDown } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/cn";
 
 export const Button = forwardRef<
@@ -212,27 +213,40 @@ export const Sheet = ({
   title?: string;
   children: React.ReactNode;
 }) => {
-  if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center p-0 sm:p-4">
-      <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity"
-        onClick={onClose}
-      />
-      <div className="relative z-10 w-full max-w-md rounded-t-3xl sm:rounded-3xl border border-[#e2e8f0] bg-white p-6 shadow-2xl text-[#0f172a] transition-all transform animate-in fade-in zoom-in-95 duration-200">
-        {title && (
-          <div className="mb-4 pb-3 border-b border-[#e2e8f0] flex items-center justify-between">
-            <h3 className="text-lg font-bold text-[#0f172a]">{title}</h3>
-            <button
-              onClick={onClose}
-              className="rounded-lg p-1 text-[#64748b] hover:bg-[#eef0f3] hover:text-[#0f172a] transition-colors"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-        {children}
-      </div>
-    </div>
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center p-0 sm:p-4">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={onClose}
+          />
+          <motion.div
+            initial={{ opacity: 0, y: 80, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 60, scale: 0.97 }}
+            transition={{ type: "spring", damping: 28, stiffness: 340 }}
+            className="relative z-10 w-full max-w-md rounded-t-3xl sm:rounded-3xl border border-[#e2e8f0] bg-white p-6 shadow-2xl text-[#0f172a]"
+          >
+            {title && (
+              <div className="mb-4 pb-3 border-b border-[#e2e8f0] flex items-center justify-between">
+                <h3 className="text-lg font-bold text-[#0f172a]">{title}</h3>
+                <button
+                  onClick={onClose}
+                  className="rounded-lg p-1.5 text-[#64748b] hover:bg-[#eef0f3] hover:text-[#0f172a] transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+            {children}
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
   );
 };

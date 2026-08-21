@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowLeft, Download, FileText, Plus, MessageCircle } from "lucide-react";
 import { api } from "@/lib/api";
-import { Button, Input, Select, Card, Badge, Skeleton, EmptyState, ErrorState } from "@/components/ui";
+import { Button, Input, Select, Card, Badge, Skeleton, EmptyState, ErrorState, Sheet } from "@/components/ui";
 import { currency, formatDate, vehicleTypeLabel, PAYMENT_METHODS, paymentMethodLabel, invoiceStatusLabel } from "@/lib/format";
 
 export default function InvoiceDetailPage() {
@@ -204,47 +204,42 @@ export default function InvoiceDetailPage() {
         </div>
       )}
 
-      {payOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setPayOpen(false)} />
-          <div className="relative z-10 w-full max-w-md rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl">
-            <h3 className="mb-4 text-lg font-bold text-slate-900">Record Payment</h3>
-            <div className="space-y-3">
-              <p className="text-sm text-slate-500">
-                Outstanding: <strong className="text-slate-900">{currency(invoice.dueAmount)}</strong>
-              </p>
-              <div>
-                <span className="mb-1 block text-sm font-medium text-slate-700">Amount (₹)</span>
-                <Input
-                  type="number"
-                  min={1}
-                  max={Number(invoice.dueAmount)}
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  placeholder="0"
-                />
-              </div>
-              <div>
-                <span className="mb-1 block text-sm font-medium text-slate-700">Method</span>
-                <Select value={method} onChange={(e) => setMethod(e.target.value)}>
-                  {PAYMENT_METHODS.map((m) => (
-                    <option key={m} value={m}>
-                      {paymentMethodLabel(m)}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <Button
-                className="w-full"
-                onClick={() => addPayment.mutate()}
-                disabled={!amount || Number(amount) < 1 || addPayment.isPending}
-              >
-                Save Payment
-              </Button>
-            </div>
+      <Sheet open={payOpen} onClose={() => setPayOpen(false)} title="Record Payment">
+        <div className="space-y-4">
+          <div className="rounded-xl border border-[#e2e8f0] bg-[#f8fafc] p-3 text-xs">
+            <span className="text-[#64748b]">Outstanding Due: </span>
+            <span className="font-bold text-[#b45309] text-sm">{currency(invoice.dueAmount)}</span>
           </div>
+          <div>
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-[#64748b]">Amount (₹) *</span>
+            <Input
+              type="number"
+              min={1}
+              max={Number(invoice.dueAmount)}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.00"
+            />
+          </div>
+          <div>
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-[#64748b]">Payment Method</span>
+            <Select value={method} onChange={(e) => setMethod(e.target.value)}>
+              {PAYMENT_METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {paymentMethodLabel(m)}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <Button
+            className="w-full h-11 font-bold text-base"
+            onClick={() => addPayment.mutate()}
+            disabled={!amount || Number(amount) < 1 || addPayment.isPending}
+          >
+            {addPayment.isPending ? "Saving Payment..." : "Save Payment"}
+          </Button>
         </div>
-      )}
+      </Sheet>
     </div>
   );
 }

@@ -21,12 +21,18 @@ export default function InventoryPage() {
   const stockFor = (p: any) => (tab === "SHOP" ? Number(p.shopStock ?? 0) : Number(p.warehouseStock ?? 0));
   const minFor = (p: any) => (tab === "SHOP" ? Number(p.minimumShopStock ?? 0) : Number(p.minimumWarehouseStock ?? 0));
 
+  const totalPartsCount = parts?.length ?? 0;
+  const lowStockCount = parts?.filter((p: any) => stockFor(p) < minFor(p) && stockFor(p) > 0).length ?? 0;
+  const outOfStockCount = parts?.filter((p: any) => stockFor(p) === 0).length ?? 0;
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 pb-16 md:pb-0">
       <div className="flex items-center justify-between border-b border-[#e2e8f0]/50 pb-4">
         <div>
           <h1 className="text-2xl font-black tracking-tight text-[#0f172a]">Stock Inventory</h1>
-          <p className="text-xs font-semibold text-[#64748b]">Manage shop and house parts</p>
+          <p className="text-xs font-semibold text-[#64748b]">
+            Manage shop and house parts {parts && `· ${totalPartsCount} parts (${lowStockCount} low, ${outOfStockCount} out)`}
+          </p>
         </div>
         <div className="hidden gap-2.5 md:flex">
           <Link href="/inventory/transfers">

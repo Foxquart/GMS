@@ -104,21 +104,25 @@ export default function DashboardPage() {
     );
   }
 
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good morning";
+    if (hour < 17) return "Good afternoon";
+    return "Good evening";
+  };
+
   return (
     <div className="space-y-6">
       {/* Header section */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-[#e2e8f0]/50 pb-4">
         <div>
           <h1 className="text-2xl font-black tracking-tight text-[#0f172a] flex items-center gap-2">
-            Workshop Overview <Activity size={20} className="text-[#5865f2] animate-pulse" />
+            {getGreeting()} <Activity size={20} className="text-[#5865f2] animate-pulse" />
           </h1>
           <p className="text-xs font-semibold text-[#64748b]" suppressHydrationWarning>
-            {formatDate(new Date())}
+            {formatDate(new Date())} · Workshop Overview
           </p>
         </div>
-        {/* <div className="flex items-center gap-2">
-          <Badge color="green" dot>System Ready</Badge>
-        </div> */}
       </div>
 
       {/* Period selector */}

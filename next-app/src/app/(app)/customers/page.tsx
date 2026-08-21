@@ -47,9 +47,9 @@ export default function CustomersPage() {
           <h1 className="text-2xl font-black tracking-tight text-[#0f172a]">Customer Registry</h1>
           <p className="text-xs font-semibold text-[#64748b]">Customer profiles & accounts</p>
         </div>
-        {/* <Button onClick={() => setOpen(true)} className="font-bold">
+        <Button onClick={() => setOpen(true)} className="font-bold">
           <Plus size={16} /> New Customer
-        </Button> */}
+        </Button>
       </div>
 
       <div className="relative">

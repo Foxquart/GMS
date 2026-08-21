@@ -63,16 +63,21 @@ const badgeColor = (s: string) =>
         </Button>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+      <div className="relative flex rounded-2xl bg-white p-1 border border-[#e2e8f0]/80 shadow-sm overflow-hidden select-none">
+        <div
+          className="absolute top-1 bottom-1 w-[calc(25%-2px)] rounded-xl bg-[#5865f2] shadow-md shadow-[#5865f2]/25 transition-transform duration-300 ease-out"
+          style={{
+            transform: `translateX(${FILTERS.findIndex((f) => f === status) * 100}%)`,
+          }}
+        />
         {FILTERS.map((f) => (
           <button
             key={f}
+            type="button"
             onClick={() => setStatus(f)}
             className={cn(
-              "whitespace-nowrap rounded-xl px-4 py-2 text-xs font-bold transition-all duration-150 cursor-pointer select-none",
-              status === f
-                ? "bg-[#5865f2] text-white shadow-md shadow-[#5865f2]/20"
-                : "bg-white text-[#64748b] border border-[#e2e8f0] hover:bg-[#f1f5f9] hover:text-[#0f172a]",
+              "relative z-10 flex flex-1 items-center justify-center py-2 text-xs font-extrabold tracking-wider uppercase transition-colors duration-200 cursor-pointer select-none",
+              status === f ? "text-white" : "text-[#64748b] hover:text-[#0f172a]"
             )}
           >
             {f === "ALL" ? "All Jobs" : f.replace("_", " ")}
