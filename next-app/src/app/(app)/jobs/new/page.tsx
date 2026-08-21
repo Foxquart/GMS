@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { ArrowLeft, Plus, UserPlus } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button, Input, Field, Textarea, Select, Card } from "@/components/ui";
+import { AnimatedDropdown } from "@/components/animated-dropdown";
 import { VEHICLE_TYPES, vehicleTypeLabel } from "@/lib/format";
 
 export default function NewJobPage() {
@@ -127,25 +128,28 @@ export default function NewJobPage() {
                 </div>
               </div>
             ) : (
-              <Select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
-                <option value="">Select customer…</option>
-                {(customers ?? []).map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.phone})
-                  </option>
-                ))}
-              </Select>
+              <AnimatedDropdown
+                options={(customers ?? []).map((c) => ({
+                  id: c.id,
+                  name: `${c.name} (${c.phone})`,
+                }))}
+                value={customerId}
+                onChange={setCustomerId}
+                placeholder="Select customer..."
+              />
             )}
           </div>
 
           <Field label="Vehicle Type">
-            <Select value={vehicleType} onChange={(e) => setVehicleType(e.target.value)}>
-              {VEHICLE_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {vehicleTypeLabel(t)}
-                </option>
-              ))}
-            </Select>
+            <AnimatedDropdown
+              options={VEHICLE_TYPES.map((t) => ({
+                id: t,
+                name: vehicleTypeLabel(t),
+              }))}
+              value={vehicleType}
+              onChange={setVehicleType}
+              placeholder="Select vehicle type..."
+            />
           </Field>
 
           <Field label="Vehicle Name / Model (optional)">

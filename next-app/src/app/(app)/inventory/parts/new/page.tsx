@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { ArrowLeft } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button, Input, Field, Textarea, Select, Card } from "@/components/ui";
+import { AnimatedDropdown } from "@/components/animated-dropdown";
 
 export default function NewPartPage() {
   const router = useRouter();
@@ -59,60 +60,112 @@ export default function NewPartPage() {
         <h1 className="text-2xl font-bold text-slate-900">New Part</h1>
       </div>
 
-      <Card className="space-y-4 p-5">
+      <Card className="space-y-4 p-5 sm:p-6 shadow-sm border border-[#e2e8f0]">
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (!name) return toast.error("Part name is required");
+            if (!name.trim()) return toast.error("Part name is required");
             create.mutate();
           }}
           className="space-y-4"
         >
-          <Field label="Name *">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Brake Pad" />
+          <Field label="Part Name *">
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Brake Pad / Oil Filter"
+              required
+            />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <Field label="Part Number">
-              <Input value={partNumber} onChange={(e) => setPartNumber(e.target.value)} placeholder="e.g. BP-100" />
+              <Input
+                value={partNumber}
+                onChange={(e) => setPartNumber(e.target.value)}
+                placeholder="e.g. BP-100-X"
+              />
             </Field>
-            <Field label="Brand">
-              <Input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="e.g. BOSCH" />
+            <Field label="Brand / Manufacturer">
+              <Input
+                value={brand}
+                onChange={(e) => setBrand(e.target.value)}
+                placeholder="e.g. BOSCH / Castrol"
+              />
             </Field>
           </div>
+
           <Field label="Category">
-            <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-              <option value="">No category</option>
-              {(categories ?? []).map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
+            <AnimatedDropdown
+              options={categories ?? []}
+              value={categoryId}
+              onChange={setCategoryId}
+              placeholder="Select a category (optional)..."
+            />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <Field label="Selling Price (₹)">
-              <Input type="number" min={0} value={sellingPrice} onChange={(e) => setSellingPrice(e.target.value)} placeholder="0" />
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                value={sellingPrice}
+                onChange={(e) => setSellingPrice(e.target.value)}
+                placeholder="0.00"
+              />
             </Field>
             <Field label="Purchase Price (₹)">
-              <Input type="number" min={0} value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} placeholder="0" />
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                value={purchasePrice}
+                onChange={(e) => setPurchasePrice(e.target.value)}
+                placeholder="0.00"
+              />
             </Field>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
             <Field label="Min Shop Stock">
-              <Input type="number" min={0} value={minimumShopStock} onChange={(e) => setMinimumShopStock(e.target.value)} />
+              <Input
+                type="number"
+                min={0}
+                value={minimumShopStock}
+                onChange={(e) => setMinimumShopStock(e.target.value)}
+                placeholder="5"
+              />
             </Field>
-            <Field label="Min Warehouse">
-              <Input type="number" min={0} value={minimumWarehouseStock} onChange={(e) => setMinimumWarehouseStock(e.target.value)} />
+            <Field label="Min Warehouse Stock">
+              <Input
+                type="number"
+                min={0}
+                value={minimumWarehouseStock}
+                onChange={(e) => setMinimumWarehouseStock(e.target.value)}
+                placeholder="10"
+              />
             </Field>
             <Field label="Unit">
-              <Input value={unit} onChange={(e) => setUnit(e.target.value)} />
+              <Input
+                value={unit}
+                onChange={(e) => setUnit(e.target.value)}
+                placeholder="e.g. pcs / set"
+              />
             </Field>
           </div>
+
           <Field label="Description (optional)">
-            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Add part specifications, compatibility notes, or details..."
+              rows={3}
+            />
           </Field>
-          <Button type="submit" className="w-full" size="lg" disabled={create.isPending}>
-            {create.isPending ? "Creating..." : "Create Part"}
+
+          <Button type="submit" className="w-full h-11 font-bold text-base" disabled={create.isPending}>
+            {create.isPending ? "Creating Part..." : "Create Part"}
           </Button>
         </form>
       </Card>

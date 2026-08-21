@@ -1,4 +1,5 @@
 import { forwardRef } from "react";
+import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 export const Button = forwardRef<
@@ -48,16 +49,19 @@ export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTML
 export const Select = forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HTMLSelectElement>>(
   function Select({ className, children, ...props }, ref) {
     return (
-      <select
-        ref={ref}
-        className={cn(
-          "h-10 w-full rounded-xl border border-[#cbd5e1] bg-white px-3.5 text-sm text-[#0f172a] focus:outline-none focus:ring-2 focus:ring-[#5865f2]/40 focus:border-[#5865f2] transition-all disabled:opacity-50 cursor-pointer",
-          className,
-        )}
-        {...props}
-      >
-        {children}
-      </select>
+      <div className="relative w-full">
+        <select
+          ref={ref}
+          className={cn(
+            "h-10 w-full appearance-none rounded-xl border border-[#cbd5e1] bg-white pl-3.5 pr-9 text-sm text-[#0f172a] focus:outline-none focus:ring-2 focus:ring-[#5865f2]/40 focus:border-[#5865f2] transition-all disabled:opacity-50 cursor-pointer [&>option]:bg-white [&>option]:text-[#0f172a]",
+            className,
+          )}
+          {...props}
+        >
+          {children}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-3 top-3 text-[#94a3b8]" size={16} />
+      </div>
     );
   },
 );
@@ -138,11 +142,15 @@ export const Field = ({
   hint?: string;
   className?: string;
 }) => (
-  <label className={cn("block space-y-1.5", className)}>
-    {label && <span className="block text-xs font-bold uppercase tracking-wider text-[#94a3b8]">{label}</span>}
+  <div className={cn("flex flex-col space-y-1.5", className)}>
+    {label && (
+      <span className="block text-xs font-bold uppercase tracking-wider text-[#64748b] min-h-[1.25rem] flex items-center">
+        {label}
+      </span>
+    )}
     {children}
     {hint && <span className="block text-xs text-[#64748b]">{hint}</span>}
-  </label>
+  </div>
 );
 
 export const EmptyState = ({
