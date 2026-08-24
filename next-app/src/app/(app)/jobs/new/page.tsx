@@ -6,7 +6,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, UserPlus } from "lucide-react";
 import { api } from "@/lib/api";
-import { Button, Input, Field, Textarea, Select, Card } from "@/components/ui";
+import { Button, Input, Field, Textarea, Card } from "@/components/ui";
 import { AnimatedDropdown } from "@/components/animated-dropdown";
 import { VEHICLE_TYPES, vehicleTypeLabel } from "@/lib/format";
 
