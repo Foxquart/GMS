@@ -26,10 +26,9 @@ function createDb() {
     const { PGlite } = require("@electric-sql/pglite");
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { drizzle: drizzlePglite } = require("drizzle-orm/pglite");
-    const dataDir = path.resolve(
-      process.env.PGLITE_DATA_DIR ??
-        /* turbopackIgnore: true */ path.resolve(process.cwd(), ".pglite"),
-    );
+    const dataDir = process.env.PGLITE_DATA_DIR
+      ? path.resolve(/* turbopackIgnore: true */ process.env.PGLITE_DATA_DIR)
+      : path.join(process.cwd(), ".pglite");
     const lockFile = path.join(dataDir, "postmaster.pid");
     if (fs.existsSync(lockFile)) {
       try {
