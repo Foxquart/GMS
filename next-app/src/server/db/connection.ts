@@ -1,8 +1,3 @@
-import { PGlite } from "@electric-sql/pglite";
-import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
-import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
-import { migrate as migratePglite } from "drizzle-orm/pglite/migrator";
-import { migrate as migratePg } from "drizzle-orm/node-postgres/migrator";
 import { scryptSync, randomBytes } from "node:crypto";
 import path from "path";
 import fs from "fs";
@@ -27,12 +22,14 @@ function hashPassword(password: string): string {
 
 function createDb() {
   if (usePglite) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { PGlite } = require("@electric-sql/pglite");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { drizzle: drizzlePglite } = require("drizzle-orm/pglite");
     const dataDir = path.resolve(
       process.env.PGLITE_DATA_DIR ??
         /* turbopackIgnore: true */ path.resolve(process.cwd(), ".pglite"),
     );
-    // Remove a stale postmaster lock left behind when the previous dev
-    // server was killed; otherwise PGlite's embedded postgres aborts.
     const lockFile = path.join(dataDir, "postmaster.pid");
     if (fs.existsSync(lockFile)) {
       try {
@@ -44,10 +41,10 @@ function createDb() {
     const client = new PGlite(dataDir);
     return drizzlePglite(client, { schema });
   }
-  // `pg` is bundled as an external package; keep a sync require for the
-  // node-postgres (production) path.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { Pool } = require("pg");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { drizzle: drizzlePg } = require("drizzle-orm/node-postgres");
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     max: 10,
@@ -65,8 +62,12 @@ export async function ensureDbSetup() {
     globalForDb.dbSetup = (async () => {
       const migrationsFolder = path.resolve(process.cwd(), "drizzle");
       if (usePglite) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { migrate: migratePglite } = require("drizzle-orm/pglite/migrator");
         await migratePglite(db as any, { migrationsFolder });
       } else {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { migrate: migratePg } = require("drizzle-orm/node-postgres/migrator");
         await migratePg(db as any, { migrationsFolder });
       }
 
