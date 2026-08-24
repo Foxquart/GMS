@@ -86,7 +86,7 @@ export default function CustomersPage() {
         <div className="space-y-2.5">
           {customers.map((c) => (
             <Link key={c.id} href={`/customers/${c.id}`}>
-              <Card className="flex items-center justify-between p-4 transition-all duration-150 hover:bg-[#f1f5f9]/90 hover:border-[#5865f2]/50 hover:-translate-y-0.5">
+              <Card className="flex items-center justify-between p-4 mt-2 transition-all duration-150 hover:bg-[#f1f5f9]/90 hover:border-[#5865f2]/50 hover:-translate-y-0.5">
                 <div className="flex items-center gap-3.5">
                   <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#5865f2]/15 text-[#5865f2] border border-[#5865f2]/30 font-bold">
                     {c.name ? c.name[0].toUpperCase() : <Users size={20} />}

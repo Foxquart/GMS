@@ -110,7 +110,7 @@ const badgeColor = (s: string) =>
         <div className="space-y-2.5">
           {jobs.map((job) => (
             <Link key={job.id} href={`/jobs/${job.id}`}>
-              <Card className="p-4 transition-all duration-150 hover:bg-[#f1f5f9]/90 hover:border-[#5865f2]/50 hover:-translate-y-0.5">
+              <Card className="p-4 mt-2 border border-dashed border-[#e2e8f0]/50 transition-all duration-150 hover:bg-[#f1f5f9]/90 hover:border-[#5865f2]/50 hover:-translate-y-0.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3.5">
                     <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#5865f2]/15 text-[#5865f2] border border-[#5865f2]/30">

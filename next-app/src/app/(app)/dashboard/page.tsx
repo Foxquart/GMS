@@ -191,7 +191,7 @@ export default function DashboardPage() {
             <div className="space-y-2">
               {data.activeJobs.map((job: any) => (
                 <Link key={job.id} href={`/jobs/${job.id}`}>
-                  <Card className="flex items-center justify-between p-3.5 transition-all duration-150 hover:bg-[#f1f5f9]/80 hover:border-[#5865f2]/40">
+                  <Card className="flex items-center justify-between p-3.5 mt-2 transition-all duration-150 hover:bg-[#f1f5f9]/80 hover:border-[#5865f2]/40">
                     <div className="flex items-center gap-3">
                       <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#5865f2]/20 text-[#5865f2] border border-[#5865f2]/30">
                         <Wrench size={18} />
