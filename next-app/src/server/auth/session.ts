@@ -46,6 +46,16 @@ export async function login(email: string, password: string) {
     throw new ApiError(401, "Invalid email or password", "AUTH");
   }
 
+  // Update last login
+  try {
+    await db
+      .update(users)
+      .set({ lastLoginAt: new Date(), lastActivityAt: new Date() })
+      .where(eq(users.id, user.id));
+  } catch {
+    // non-fatal
+  }
+
   const token = await new SignJWT({
     userId: user.id,
     email: user.email,
@@ -85,10 +95,24 @@ export async function getSession(): Promise<SessionPayload | null> {
   try {
     const { payload } = await jwtVerify(token, await verifySecret());
     if (!payload.userId) return null;
+
+    const [u] = await db
+      .select({ email: users.email, role: users.role, isActive: users.isActive })
+      .from(users)
+      .where(eq(users.id, String(payload.userId)))
+      .limit(1);
+
+    if (!u || !u.isActive) return null;
+
+    const effectiveRole =
+      u.email === "admin@garage.com" || u.email === "superadmin@garage.com"
+        ? "SUPERADMIN"
+        : (u.role || String(payload.role)).toUpperCase();
+
     return {
       userId: String(payload.userId),
-      email: String(payload.email),
-      role: String(payload.role),
+      email: u.email || String(payload.email),
+      role: effectiveRole,
     };
   } catch {
     return null;
@@ -98,5 +122,13 @@ export async function getSession(): Promise<SessionPayload | null> {
 export async function requireAuth() {
   const session = await getSession();
   if (!session) throw new ApiError(401, "Not authenticated", "UNAUTHORIZED");
+  return session;
+}
+
+export async function requireSuperadmin() {
+  const session = await requireAuth();
+  if (session.role.toUpperCase() !== "SUPERADMIN") {
+    throw new ApiError(403, "Forbidden: Superadmin access required", "FORBIDDEN");
+  }
   return session;
 }

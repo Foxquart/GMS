@@ -35,9 +35,25 @@ export async function bootstrap() {
       name: "Admin Owner",
       email: adminEmail,
       passwordHash: hashPassword("admin123"),
-      role: "admin",
+      role: "ADMIN",
     });
     console.log("✅ Admin user created (admin@garage.com / admin123)");
+  }
+
+  const superadminEmail = "superadmin@garage.com";
+  const [existingSuperadmin] = await db
+    .select()
+    .from(schema.users)
+    .where(eq(schema.users.email, superadminEmail))
+    .limit(1);
+  if (!existingSuperadmin) {
+    await db.insert(schema.users).values({
+      name: "Platform Superadmin",
+      email: superadminEmail,
+      passwordHash: hashPassword("superadmin123"),
+      role: "SUPERADMIN",
+    });
+    console.log("✅ Superadmin user created (superadmin@garage.com / superadmin123)");
   }
 
   // ─── Seed inventory locations ──────────────────────────────────────

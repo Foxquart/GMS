@@ -63,8 +63,10 @@ export const users = pgTable("users", {
   name: varchar("name", { length: 255 }).notNull(),
   email: varchar("email", { length: 255 }).notNull(),
   passwordHash: text("password_hash").notNull(),
-  role: varchar("role", { length: 50 }).notNull().default("admin"),
+  role: varchar("role", { length: 50 }).notNull().default("ADMIN"),
   isActive: boolean("is_active").notNull().default(true),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  lastActivityAt: timestamp("last_activity_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -299,3 +301,44 @@ export const settings = pgTable("settings", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ─── Platform Control Plane Tables (V1.1) ───────────────────────────
+export const auditLogs = pgTable("audit_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id),
+  userName: varchar("user_name", { length: 255 }),
+  action: varchar("action", { length: 100 }).notNull(),
+  resourceType: varchar("resource_type", { length: 50 }),
+  resourceId: varchar("resource_id", { length: 100 }),
+  details: text("details"),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_audit_logs_user_id").on(table.userId),
+  index("idx_audit_logs_action").on(table.action),
+  index("idx_audit_logs_created_at").on(table.createdAt),
+]);
+
+export const systemHealthChecks = pgTable("system_health_checks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  checkType: varchar("check_type", { length: 50 }).notNull(), // API | DATABASE
+  status: varchar("status", { length: 20 }).notNull(), // HEALTHY | DEGRADED | UNHEALTHY
+  latencyMs: integer("latency_ms").notNull(),
+  details: text("details"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_health_checks_created_at").on(table.createdAt),
+]);
+
+export const systemAlerts = pgTable("system_alerts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  severity: varchar("severity", { length: 20 }).notNull(), // CRITICAL | WARNING | INFO
+  condition: varchar("condition", { length: 255 }).notNull(),
+  threshold: varchar("threshold", { length: 100 }),
+  currentValue: varchar("current_value", { length: 100 }),
+  status: varchar("status", { length: 20 }).notNull().default("OPEN"), // OPEN | RESOLVED
+  firstDetectedAt: timestamp("first_detected_at", { withTimezone: true }).notNull().defaultNow(),
+  lastDetectedAt: timestamp("last_detected_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_system_alerts_status").on(table.status),
+]);

@@ -82,7 +82,25 @@ export async function ensureDbSetup() {
           name: "Admin Owner",
           email: adminEmail,
           passwordHash: hashPassword("admin123"),
-          role: "admin",
+          role: "SUPERADMIN",
+        });
+      } else if (existingUser.role.toUpperCase() !== "SUPERADMIN") {
+        await db.update(schema.users).set({ role: "SUPERADMIN" }).where(eq(schema.users.id, existingUser.id));
+      }
+
+      // Seed superadmin user.
+      const superadminEmail = "superadmin@garage.com";
+      const [existingSuperadmin] = await db
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.email, superadminEmail))
+        .limit(1);
+      if (!existingSuperadmin) {
+        await db.insert(schema.users).values({
+          name: "Platform Superadmin",
+          email: superadminEmail,
+          passwordHash: hashPassword("superadmin123"),
+          role: "SUPERADMIN",
         });
       }
 
