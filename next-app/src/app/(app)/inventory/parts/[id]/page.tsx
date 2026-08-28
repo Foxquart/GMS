@@ -324,6 +324,15 @@ export default function PartDetailPage() {
           <SpecTile label="Min shop" value={minShop} />
           <SpecTile label="Min warehouse" value={minWarehouse} />
         </div>
+        {!!part.attributes?.length && (
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {part.attributes.map(
+              (a: { label: string; value: string }, i: number) => (
+                <SpecTile key={i} label={a.label || "Field"} value={a.value || "—"} tone="cream" />
+              ),
+            )}
+          </div>
+        )}
         {part.description && (
           <Tile tone="cream" className="mt-3">
             <p className="tile-label text-[var(--ink-label)]">Notes</p>

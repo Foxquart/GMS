@@ -182,29 +182,6 @@ export default function DashboardPage() {
     </header>
   );
 
-  if (isLoading) {
-    return (
-      <div className="space-y-6">
-        {header}
-        <BentoGrid>
-          <Skeleton className="col-span-2 h-44" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-        </BentoGrid>
-        <Skeleton className="h-12 rounded-full" />
-        <Skeleton className="h-[19.5rem] rounded-[var(--r-card)]" />
-        <div className="space-y-3">
-          <Skeleton className="h-5 w-36 rounded-full" />
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-[4.75rem]" />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
   if (isError) {
     return (
       <div className="space-y-6">
@@ -223,6 +200,15 @@ export default function DashboardPage() {
       {header}
 
       {/* ── Today, at a squint ───────────────────────────────────────── */}
+      {isLoading ? (
+        <BentoGrid>
+          <Skeleton className="col-span-2 h-44" />
+          <Skeleton className="h-32" />
+          <Skeleton className="h-32" />
+          <Skeleton className="h-32" />
+          <Skeleton className="h-32" />
+        </BentoGrid>
+      ) : (
       <BentoGrid>
         <Tile tone="forest" className="col-span-2 flex min-h-44 flex-col justify-between gap-6 p-5">
           <div className="flex items-start justify-between gap-3">
@@ -268,6 +254,7 @@ export default function DashboardPage() {
           icon={<CircleCheckBig size={16} />}
         />
       </BentoGrid>
+      )}
 
       {/* ── Period report ────────────────────────────────────────────── */}
       <section>
@@ -345,7 +332,13 @@ export default function DashboardPage() {
           icon={<Wrench size={18} />}
           action={<SectionLink href="/jobs">All jobs</SectionLink>}
         />
-        {!data?.activeJobs?.length ? (
+        {isLoading ? (
+          <div className="space-y-2.5">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-[4.75rem]" />
+            ))}
+          </div>
+        ) : !data?.activeJobs?.length ? (
           <EmptyState
             title="Nothing on the floor"
             description="Every job is closed. Open a new one when the next vehicle arrives."
@@ -390,7 +383,13 @@ export default function DashboardPage() {
           icon={<PackageX size={18} />}
           action={<SectionLink href="/inventory">Inventory</SectionLink>}
         />
-        {!data?.lowStock?.length ? (
+        {isLoading ? (
+          <div className="space-y-2.5">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-[4.75rem]" />
+            ))}
+          </div>
+        ) : !data?.lowStock?.length ? (
           <EmptyState
             title="Shelves are stocked"
             description="Every part is above its minimum shop level."
@@ -481,7 +480,13 @@ export default function DashboardPage() {
           icon={<ClipboardList size={18} />}
           action={<SectionLink href="/invoices">All invoices</SectionLink>}
         />
-        {!data?.recentInvoices?.length ? (
+        {isLoading ? (
+          <div className="space-y-2.5">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <Skeleton key={i} className="h-[4.75rem]" />
+            ))}
+          </div>
+        ) : !data?.recentInvoices?.length ? (
           <EmptyState
             title="No invoices yet"
             description="An invoice is raised the moment you complete a job."

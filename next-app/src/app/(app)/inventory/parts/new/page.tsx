@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, ChevronDown, Package, Coins, Boxes } from "lucide-react";
+import { ArrowLeft, ChevronDown, Package, Coins, Boxes, Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button, Input, Field, Textarea, CircleButton, SectionHeader } from "@/components/ui";
 import { AnimatedDropdown } from "@/components/animated-dropdown";
@@ -24,6 +24,15 @@ export default function NewPartPage() {
   const [unit, setUnit] = useState("pcs");
   const [description, setDescription] = useState("");
   const [showMore, setShowMore] = useState(false);
+  // Open-ended spec sheet — a workshop tracks different things per part.
+  const [attributes, setAttributes] = useState<{ label: string; value: string }[]>([]);
+
+  const setAttribute = (i: number, patch: Partial<{ label: string; value: string }>) =>
+    setAttributes((rows) => rows.map((r, n) => (n === i ? { ...r, ...patch } : r)));
+  const addAttribute = () =>
+    setAttributes((rows) => [...rows, { label: "", value: "" }]);
+  const removeAttribute = (i: number) =>
+    setAttributes((rows) => rows.filter((_, n) => n !== i));
 
   const { data: categories } = useQuery({
     queryKey: ["categories"],
@@ -45,6 +54,7 @@ export default function NewPartPage() {
           minimumWarehouseStock: Number(minimumWarehouseStock),
           unit: unit || undefined,
           description: description || undefined,
+          attributes: attributes.filter((a) => a.label.trim() || a.value.trim()),
         }),
       }),
     onSuccess: (p: any) => {
@@ -213,6 +223,50 @@ export default function NewPartPage() {
                     rows={3}
                   />
                 </Field>
+
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <span className="tile-label text-[var(--ink-label)]">Custom fields</span>
+                    <Button type="button" variant="outline" size="sm" onClick={addAttribute}>
+                      <Plus size={14} /> Add field
+                    </Button>
+                  </div>
+                  {!attributes.length ? (
+                    <p className="text-xs text-[var(--ink-muted)]">
+                      Add your own spec rows — thread pitch, viscosity, fitment, warranty.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {attributes.map((row, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <Input
+                            value={row.label}
+                            onChange={(e) => setAttribute(i, { label: e.target.value })}
+                            placeholder="Field"
+                            className="flex-1"
+                            aria-label={`Custom field ${i + 1} name`}
+                          />
+                          <Input
+                            value={row.value}
+                            onChange={(e) => setAttribute(i, { value: e.target.value })}
+                            placeholder="Value"
+                            className="flex-1"
+                            aria-label={`Custom field ${i + 1} value`}
+                          />
+                          <CircleButton
+                            type="button"
+                            onDark={false}
+                            onClick={() => removeAttribute(i)}
+                            aria-label={`Remove custom field ${i + 1}`}
+                            className="h-9 w-9 shrink-0"
+                          >
+                            <Trash2 size={15} />
+                          </CircleButton>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

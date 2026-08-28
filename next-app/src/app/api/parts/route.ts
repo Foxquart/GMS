@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
         sellingPrice: body?.sellingPrice !== undefined ? String(body.sellingPrice) : undefined,
         minimumShopStock: body?.minimumShopStock !== undefined ? Number(body.minimumShopStock) : undefined,
         minimumWarehouseStock: body?.minimumWarehouseStock !== undefined ? Number(body.minimumWarehouseStock) : undefined,
+        attributes: Array.isArray(body?.attributes) ? body.attributes : undefined,
         unit: body?.unit || undefined,
         barcode: body?.barcode || undefined,
         description: body?.description || undefined,
@@ -67,6 +68,7 @@ export async function PATCH(request: NextRequest) {
       "unit",
       "description",
       "isArchived",
+      "attributes",
     ]) {
       if (body[key] !== undefined) updates[key] = body[key];
     }

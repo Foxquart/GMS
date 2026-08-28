@@ -232,15 +232,41 @@ export async function createPart(input: {
   unit?: string;
   barcode?: string;
   description?: string;
+  attributes?: { label: string; value: string }[];
 }) {
-  const [row] = await db.insert(parts).values(input).returning();
+  const [row] = await db
+    .insert(parts)
+    .values({ ...input, attributes: normalizeAttributes(input.attributes) })
+    .returning();
   return row;
 }
 
+/**
+ * Custom part fields arrive straight from a form, so drop blank rows, trim,
+ * and cap the count — this lands in jsonb and is rendered back verbatim.
+ */
+export function normalizeAttributes(
+  input: unknown,
+): { label: string; value: string }[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .filter((a): a is { label: unknown; value: unknown } => !!a && typeof a === "object")
+    .map((a) => ({
+      label: String(a.label ?? "").trim().slice(0, 60),
+      value: String(a.value ?? "").trim().slice(0, 200),
+    }))
+    .filter((a) => a.label !== "" || a.value !== "")
+    .slice(0, 25);
+}
+
 export async function updatePart(id: string, input: Record<string, unknown>) {
+  const updates =
+    input.attributes !== undefined
+      ? { ...input, attributes: normalizeAttributes(input.attributes) }
+      : input;
   const [row] = await db
     .update(parts)
-    .set({ ...input, updatedAt: new Date() })
+    .set({ ...updates, updatedAt: new Date() })
     .where(eq(parts.id, id))
     .returning();
   if (!row) throw new ApiError(404, "Part not found");

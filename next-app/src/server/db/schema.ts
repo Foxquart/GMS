@@ -10,6 +10,7 @@ import {
   index,
   pgEnum,
   uniqueIndex,
+  jsonb,
 } from "drizzle-orm/pg-core";
 
 // ─── Enums ───────────────────────────────────────────────────────────
@@ -139,6 +140,12 @@ export const parts = pgTable("parts", {
   unit: varchar("unit", { length: 20 }).notNull().default("pcs"),
   barcode: varchar("barcode", { length: 100 }),
   description: text("description"),
+  /**
+   * Free-form spec sheet: [{ label, value }, ...]. Workshops track different
+   * things per part — thread pitch, viscosity, fitment — so this stays open
+   * rather than forcing a fixed column per attribute.
+   */
+  attributes: jsonb("attributes").$type<{ label: string; value: string }[]>().notNull().default([]),
   isArchived: boolean("is_archived").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
