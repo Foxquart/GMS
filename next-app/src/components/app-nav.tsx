@@ -79,13 +79,12 @@ export function AppNav() {
 
   const isSuperadmin = user?.role?.toUpperCase() === "SUPERADMIN";
 
-  const moreActive = [
-    "/invoices",
-    "/settings",
-    "/superadmin",
-    "/inventory/categories",
-    "/inventory/suppliers",
-  ].some((p) => pathname.startsWith(p));
+  // Only ever one pill is active. Categories and Suppliers sit under
+  // /inventory, so the Inventory pill owns them — listing them here too lit
+  // up Inventory and More simultaneously and crowded the bar.
+  const moreActive = ["/invoices", "/settings", "/superadmin"].some((p) =>
+    pathname.startsWith(p),
+  );
 
   // Only exact list roots get the button — not detail pages, which have
   // their own actions, and not routes with a page-level bottom bar.

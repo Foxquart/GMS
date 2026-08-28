@@ -63,6 +63,12 @@ export const db =
 
 // ─── Setup (migrate + seed) ──────────────────────────────────────────
 export async function ensureDbSetup() {
+  // On serverless this runs once per *instance*, not once per deploy — so
+  // every cold start pays for a migration check plus the seed reads below.
+  // Once the database is migrated and seeded, set SKIP_DB_SETUP=true to take
+  // it off the cold-start path entirely.
+  if (process.env.SKIP_DB_SETUP === "true") return;
+
   if (!globalForDb.dbSetup) {
     globalForDb.dbSetup = (async () => {
       const migrationsFolder = path.resolve(process.cwd(), "drizzle");

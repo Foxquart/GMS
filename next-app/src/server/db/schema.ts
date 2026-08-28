@@ -109,7 +109,9 @@ export const categories = pgTable("categories", {
   isArchived: boolean("is_archived").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_categories_name").on(table.name),
+]);
 
 // ─── Suppliers ───────────────────────────────────────────────────────
 export const suppliers = pgTable("suppliers", {
@@ -182,6 +184,7 @@ export const stockMovements = pgTable("stock_movements", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("idx_stock_movements_part_id").on(table.partId),
+  index("idx_stock_movements_location_id").on(table.locationId),
   index("idx_stock_movements_created_at").on(table.createdAt),
 ]);
 
@@ -199,7 +202,9 @@ export const stockTransferItems = pgTable("stock_transfer_items", {
   transferId: uuid("transfer_id").notNull().references(() => stockTransfers.id),
   partId: uuid("part_id").notNull().references(() => parts.id),
   quantity: integer("quantity").notNull(),
-});
+}, (table) => [
+  index("idx_stock_transfer_items_transfer_id").on(table.transferId),
+]);
 
 // ─── Jobs ────────────────────────────────────────────────────────────
 export const jobs = pgTable("jobs", {
@@ -228,7 +233,9 @@ export const jobLabour = pgTable("job_labour", {
   description: varchar("description", { length: 255 }).notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_job_labour_job_id").on(table.jobId),
+]);
 
 // ─── Job Parts (price snapshot) ──────────────────────────────────────
 export const jobParts = pgTable("job_parts", {
@@ -240,7 +247,9 @@ export const jobParts = pgTable("job_parts", {
   unitPrice: numeric("unit_price", { precision: 10, scale: 2 }).notNull(),
   totalPrice: numeric("total_price", { precision: 10, scale: 2 }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_job_parts_job_id").on(table.jobId),
+]);
 
 // ─── Invoices ────────────────────────────────────────────────────────
 export const invoices = pgTable("invoices", {
@@ -260,6 +269,9 @@ export const invoices = pgTable("invoices", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("idx_invoices_invoice_number").on(table.invoiceNumber),
+  // listJobs runs three correlated subqueries per row against this column;
+  // without the index each one sequentially scans the whole invoices table.
+  index("idx_invoices_job_id").on(table.jobId),
   index("idx_invoices_customer_id").on(table.customerId),
   index("idx_invoices_created_at").on(table.createdAt),
   index("idx_invoices_status").on(table.status),
@@ -274,7 +286,9 @@ export const invoiceItems = pgTable("invoice_items", {
   quantity: numeric("quantity", { precision: 10, scale: 2 }).notNull().default("1"),
   unitPrice: numeric("unit_price", { precision: 10, scale: 2 }).notNull(),
   totalPrice: numeric("total_price", { precision: 10, scale: 2 }).notNull(),
-});
+}, (table) => [
+  index("idx_invoice_items_invoice_id").on(table.invoiceId),
+]);
 
 // ─── Payments ────────────────────────────────────────────────────────
 export const payments = pgTable("payments", {
