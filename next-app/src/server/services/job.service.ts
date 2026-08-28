@@ -196,45 +196,38 @@ export async function getJob(id: string) {
     .limit(1);
   if (!job) throw new ApiError(404, "Job not found");
 
-  const [customer] = await db
-    .select()
-    .from(customers)
-    .where(eq(customers.id, job.customerId))
-    .limit(1);
-  const [vehicle] = job.vehicleId
-    ? await db
-        .select()
-        .from(vehicles)
-        .where(eq(vehicles.id, job.vehicleId))
-        .limit(1)
-    : [];
+  // Everything below only needs the job row above, not each other. These were
+  // five more sequential round trips; they now go out in one wave.
+  const [customerRows, vehicleRows, labour, jobPartList, invoiceRows] = await Promise.all([
+    db.select().from(customers).where(eq(customers.id, job.customerId)).limit(1),
+    job.vehicleId
+      ? db.select().from(vehicles).where(eq(vehicles.id, job.vehicleId)).limit(1)
+      : Promise.resolve([] as any[]),
+    db
+      .select()
+      .from(jobLabour)
+      .where(eq(jobLabour.jobId, id))
+      .orderBy(jobLabour.createdAt),
+    db
+      .select({
+        id: jobParts.id,
+        partId: jobParts.partId,
+        partName: jobParts.partName,
+        quantity: jobParts.quantity,
+        unitPrice: jobParts.unitPrice,
+        totalPrice: jobParts.totalPrice,
+        sellingPrice: parts.sellingPrice,
+      })
+      .from(jobParts)
+      .leftJoin(parts, eq(jobParts.partId, parts.id))
+      .where(eq(jobParts.jobId, id))
+      .orderBy(jobParts.createdAt),
+    db.select().from(invoices).where(eq(invoices.jobId, id)).limit(1),
+  ]);
 
-  const labour = await db
-    .select()
-    .from(jobLabour)
-    .where(eq(jobLabour.jobId, id))
-    .orderBy(jobLabour.createdAt);
-
-  const jobPartList = await db
-    .select({
-      id: jobParts.id,
-      partId: jobParts.partId,
-      partName: jobParts.partName,
-      quantity: jobParts.quantity,
-      unitPrice: jobParts.unitPrice,
-      totalPrice: jobParts.totalPrice,
-      sellingPrice: parts.sellingPrice,
-    })
-    .from(jobParts)
-    .leftJoin(parts, eq(jobParts.partId, parts.id))
-    .where(eq(jobParts.jobId, id))
-    .orderBy(jobParts.createdAt);
-
-  const [invoice] = await db
-    .select()
-    .from(invoices)
-    .where(eq(invoices.jobId, id))
-    .limit(1);
+  const customer = customerRows[0];
+  const vehicle = vehicleRows[0];
+  const invoice = invoiceRows[0];
 
   return { job, customer, vehicle: vehicle ?? null, labour, parts: jobPartList, invoice: invoice ?? null };
 }
@@ -366,12 +359,27 @@ export async function deleteJob(id: string) {
   return { id };
 }
 
-// ─── Labour ──────────────────────────────────────────────────────────
-export async function addLabour(jobId: string, input: { description: string; amount: number }) {
-  const job = await getJob(jobId);
-  if (isTerminalStatus(job.job.status)) {
+
+/**
+ * Cheap editability guard. The mutations below only need the job's status,
+ * but each one used to call getJob(), which fans out six queries to build a
+ * full detail payload that was then thrown away.
+ */
+async function assertJobEditable(jobId: string) {
+  const [row] = await db
+    .select({ status: jobs.status })
+    .from(jobs)
+    .where(eq(jobs.id, jobId))
+    .limit(1);
+  if (!row) throw new ApiError(404, "Job not found");
+  if (isTerminalStatus(row.status)) {
     throw new ApiError(409, "Cannot modify a finished job.");
   }
+}
+
+// ─── Labour ──────────────────────────────────────────────────────────
+export async function addLabour(jobId: string, input: { description: string; amount: number }) {
+  await assertJobEditable(jobId);
   const [row] = await db
     .insert(jobLabour)
     .values({ jobId, description: input.description, amount: String(input.amount) })
@@ -380,10 +388,7 @@ export async function addLabour(jobId: string, input: { description: string; amo
 }
 
 export async function removeLabour(jobId: string, labourId: string) {
-  const job = await getJob(jobId);
-  if (isTerminalStatus(job.job.status)) {
-    throw new ApiError(409, "Cannot modify a finished job.");
-  }
+  await assertJobEditable(jobId);
   await db
     .delete(jobLabour)
     .where(and(eq(jobLabour.id, labourId), eq(jobLabour.jobId, jobId)));
@@ -391,10 +396,7 @@ export async function removeLabour(jobId: string, labourId: string) {
 
 // ─── Parts on job ────────────────────────────────────────────────────
 export async function addJobPart(jobId: string, input: { partId: string; quantity: number }) {
-  const job = await getJob(jobId);
-  if (isTerminalStatus(job.job.status)) {
-    throw new ApiError(409, "Cannot modify a finished job.");
-  }
+  await assertJobEditable(jobId);
   const shopLocation = await getLocationByCode("SHOP");
   const [part] = await db
     .select()
@@ -441,10 +443,7 @@ export async function saveJobPart(
   jobId: string,
   input: { partId: string; quantity: number; unitPrice?: number },
 ) {
-  const job = await getJob(jobId);
-  if (isTerminalStatus(job.job.status)) {
-    throw new ApiError(409, "Cannot modify a finished job.");
-  }
+  await assertJobEditable(jobId);
   const [part] = await db
     .select()
     .from(parts)
@@ -491,10 +490,7 @@ export async function saveJobPart(
 }
 
 export async function removeJobPart(jobId: string, jobPartId: string) {
-  const job = await getJob(jobId);
-  if (isTerminalStatus(job.job.status)) {
-    throw new ApiError(409, "Cannot modify a finished job.");
-  }
+  await assertJobEditable(jobId);
   await db
     .delete(jobParts)
     .where(and(eq(jobParts.id, jobPartId), eq(jobParts.jobId, jobId)));

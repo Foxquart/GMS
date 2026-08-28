@@ -16,6 +16,8 @@ import {
   MoreHorizontal,
   FileText,
   Shield,
+  Layers,
+  Truck,
   X,
 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -27,6 +29,7 @@ const DESKTOP_CHANNELS = [
   { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/customers", label: "Customers", icon: Users },
   { href: "/invoices", label: "Invoices", icon: FileText },
+  { href: "/inventory/categories", label: "Categories", icon: Layers },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -68,11 +71,21 @@ export function AppNav() {
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
 
+  // /inventory/categories also matches /inventory, which would highlight two
+  // sidebar rows at once. Longest match wins.
+  const activeChannel = DESKTOP_CHANNELS.map((c) => c.href)
+    .filter((href) => isActive(href))
+    .sort((a, b) => b.length - a.length)[0];
+
   const isSuperadmin = user?.role?.toUpperCase() === "SUPERADMIN";
 
-  const moreActive = ["/invoices", "/settings", "/superadmin"].some((p) =>
-    pathname.startsWith(p),
-  );
+  const moreActive = [
+    "/invoices",
+    "/settings",
+    "/superadmin",
+    "/inventory/categories",
+    "/inventory/suppliers",
+  ].some((p) => pathname.startsWith(p));
 
   // Only exact list roots get the button — not detail pages, which have
   // their own actions, and not routes with a page-level bottom bar.
@@ -94,7 +107,7 @@ export function AppNav() {
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
           {DESKTOP_CHANNELS.map((item) => {
-            const active = isActive(item.href);
+            const active = activeChannel === item.href;
             const Icon = item.icon;
             return (
               <Link
@@ -257,6 +270,8 @@ export function AppNav() {
               <div className="grid grid-cols-2 gap-3">
                 {[
                   { href: "/invoices", label: "Invoices", icon: FileText },
+                  { href: "/inventory/categories", label: "Categories", icon: Layers },
+                  { href: "/inventory/suppliers", label: "Suppliers", icon: Truck },
                   { href: "/settings", label: "Settings", icon: Settings },
                 ].map((item) => (
                   <Link

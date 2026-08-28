@@ -36,56 +36,65 @@ export async function getReport(period: "daily" | "weekly" | "monthly" | "yearly
   const start = periodStart(period);
   const now = new Date();
 
-  const [billedRow] = await db
-    .select({ total: sql<string>`coalesce(sum(${invoices.total}), 0)` })
-    .from(invoices)
-    .where(
-      and(
-        gte(invoices.createdAt, start),
-        lt(invoices.createdAt, now),
-        ne(invoices.status, "CANCELLED"),
+  // Six independent aggregates. Awaiting them one at a time cost six
+  // sequential round trips to the database; on a remote Postgres that is
+  // six times the network latency for no reason. They share no state, so
+  // they go out together.
+  const [
+    [billedRow],
+    [collectedRow],
+    [jobsRow],
+    [invoicesRow],
+    [outstandingRow],
+    [partsRow],
+  ] = await Promise.all([
+    db
+      .select({ total: sql<string>`coalesce(sum(${invoices.total}), 0)` })
+      .from(invoices)
+      .where(
+        and(
+          gte(invoices.createdAt, start),
+          lt(invoices.createdAt, now),
+          ne(invoices.status, "CANCELLED"),
+        ),
       ),
-    );
-  const [collectedRow] = await db
-    .select({ total: sql<string>`coalesce(sum(${payments.amount}), 0)` })
-    .from(payments)
-    .where(and(gte(payments.createdAt, start), lt(payments.createdAt, now)));
-  const [jobsRow] = await db
-    .select({ total: sql<number>`count(*)` })
-    .from(jobs)
-    .where(
-      and(
-        eq(jobs.status, "COMPLETED"),
-        gte(jobs.completedAt ?? jobs.createdAt, start),
+    db
+      .select({ total: sql<string>`coalesce(sum(${payments.amount}), 0)` })
+      .from(payments)
+      .where(and(gte(payments.createdAt, start), lt(payments.createdAt, now))),
+    db
+      .select({ total: sql<number>`count(*)` })
+      .from(jobs)
+      .where(
+        and(
+          eq(jobs.status, "COMPLETED"),
+          gte(jobs.completedAt ?? jobs.createdAt, start),
+        ),
       ),
-    );
-  const [invoicesRow] = await db
-    .select({ total: sql<number>`count(*)` })
-    .from(invoices)
-    .where(
-      and(
-        gte(invoices.createdAt, start),
-        lt(invoices.createdAt, now),
-        ne(invoices.status, "CANCELLED"),
+    db
+      .select({ total: sql<number>`count(*)` })
+      .from(invoices)
+      .where(
+        and(
+          gte(invoices.createdAt, start),
+          lt(invoices.createdAt, now),
+          ne(invoices.status, "CANCELLED"),
+        ),
       ),
-    );
-
-  const [outstandingRow] = await db
-    .select({
-      total: sql<string>`coalesce(sum(${invoices.dueAmount}), 0)`,
-    })
-    .from(invoices)
-    .where(inArray(invoices.status, [...OUTSTANDING_INVOICE_STATUSES]));
-
-  const [partsRow] = await db
-    .select({ total: sql<number>`coalesce(sum(${stockMovements.quantity} * -1), 0)` })
-    .from(stockMovements)
-    .where(
-      and(
-        eq(stockMovements.movementType, "JOB_USAGE"),
-        gte(stockMovements.createdAt, start),
+    db
+      .select({ total: sql<string>`coalesce(sum(${invoices.dueAmount}), 0)` })
+      .from(invoices)
+      .where(inArray(invoices.status, [...OUTSTANDING_INVOICE_STATUSES])),
+    db
+      .select({ total: sql<number>`coalesce(sum(${stockMovements.quantity} * -1), 0)` })
+      .from(stockMovements)
+      .where(
+        and(
+          eq(stockMovements.movementType, "JOB_USAGE"),
+          gte(stockMovements.createdAt, start),
+        ),
       ),
-    );
+  ]);
 
   return {
     period,
@@ -128,81 +137,126 @@ export async function getDashboard() {
   const day = periodStart("daily");
   const now = new Date();
 
-  const [todayBilled] = await db
-    .select({ total: sql<string>`coalesce(sum(${invoices.total}), 0)` })
-    .from(invoices)
-    .where(and(gte(invoices.createdAt, day), lt(invoices.createdAt, now)));
-  const [todayCollected] = await db
-    .select({ total: sql<string>`coalesce(sum(${payments.amount}), 0)` })
-    .from(payments)
-    .where(and(gte(payments.createdAt, day), lt(payments.createdAt, now)));
-  const [outstanding] = await db
-    .select({
-      total: sql<string>`coalesce(sum(${invoices.dueAmount}), 0)`,
-    })
-    .from(invoices)
-    .where(inArray(invoices.status, [...OUTSTANDING_INVOICE_STATUSES]));
-  const [activeJobs] = await db
-    .select({ total: sql<number>`count(*)` })
-    .from(jobs)
-    .where(eq(jobs.status, "OPEN"));
-  const [completedToday] = await db
-    .select({ total: sql<number>`count(*)` })
-    .from(jobs)
-    .where(
-      and(
-        eq(jobs.status, "COMPLETED"),
-        gte(jobs.completedAt ?? jobs.createdAt, day),
+  // Wave 1 — everything that depends on nothing. Previously these were nine
+  // separate awaits, so the dashboard paid nine round trips of network
+  // latency before it could even start on stock levels.
+  const [
+    [todayBilled],
+    [todayCollected],
+    [outstanding],
+    [activeJobs],
+    [completedToday],
+    shop,
+    warehouse,
+    activeJobRows,
+    recentInvoices,
+  ] = await Promise.all([
+    db
+      .select({ total: sql<string>`coalesce(sum(${invoices.total}), 0)` })
+      .from(invoices)
+      .where(and(gte(invoices.createdAt, day), lt(invoices.createdAt, now))),
+    db
+      .select({ total: sql<string>`coalesce(sum(${payments.amount}), 0)` })
+      .from(payments)
+      .where(and(gte(payments.createdAt, day), lt(payments.createdAt, now))),
+    db
+      .select({ total: sql<string>`coalesce(sum(${invoices.dueAmount}), 0)` })
+      .from(invoices)
+      .where(inArray(invoices.status, [...OUTSTANDING_INVOICE_STATUSES])),
+    db
+      .select({ total: sql<number>`count(*)` })
+      .from(jobs)
+      .where(eq(jobs.status, "OPEN")),
+    db
+      .select({ total: sql<number>`count(*)` })
+      .from(jobs)
+      .where(
+        and(
+          eq(jobs.status, "COMPLETED"),
+          gte(jobs.completedAt ?? jobs.createdAt, day),
+        ),
       ),
-    );
+    db
+      .select()
+      .from(inventoryLocations)
+      .where(eq(inventoryLocations.code, "SHOP"))
+      .limit(1),
+    db
+      .select()
+      .from(inventoryLocations)
+      .where(eq(inventoryLocations.code, "WAREHOUSE"))
+      .limit(1),
+    db
+      .select({
+        id: jobs.id,
+        jobNumber: jobs.jobNumber,
+        complaint: jobs.complaint,
+        status: jobs.status,
+        createdAt: jobs.createdAt,
+        customerName: customersTable.name,
+        vehicleType: vehicles.vehicleType,
+      })
+      .from(jobs)
+      .innerJoin(customersTable, eq(jobs.customerId, customersTable.id))
+      .leftJoin(vehicles, eq(jobs.vehicleId, vehicles.id))
+      .where(eq(jobs.status, "OPEN"))
+      .orderBy(desc(jobs.createdAt))
+      .limit(10),
+    db
+      .select({
+        id: invoices.id,
+        invoiceNumber: invoices.invoiceNumber,
+        status: invoices.status,
+        total: invoices.total,
+        paidAmount: invoices.paidAmount,
+        createdAt: invoices.createdAt,
+        customerName: customersTable.name,
+      })
+      .from(invoices)
+      .innerJoin(customersTable, eq(invoices.customerId, customersTable.id))
+      .orderBy(desc(invoices.createdAt))
+      .limit(5),
+  ]);
 
-  const shop = await db
-    .select()
-    .from(inventoryLocations)
-    .where(eq(inventoryLocations.code, "SHOP"))
-    .limit(1);
   const shopId = shop[0]?.id;
-
-  const lowStock = await db
-    .select({
-      id: parts.id,
-      name: parts.name,
-      partNumber: parts.partNumber,
-      unit: parts.unit,
-      minimumShopStock: parts.minimumShopStock,
-      shopStock: sql<number>`coalesce(${inventoryBalances.quantity}, 0)`,
-    })
-    .from(parts)
-    .leftJoin(
-      inventoryBalances,
-      and(
-        eq(inventoryBalances.partId, parts.id),
-        eq(inventoryBalances.locationId, shopId ?? ""),
-      ),
-    )
-    .where(
-      and(
-        eq(parts.isArchived, false),
-        sql`coalesce(${inventoryBalances.quantity}, 0) < ${parts.minimumShopStock}`,
-      ),
-    )
-    .orderBy(sql`coalesce(${inventoryBalances.quantity}, 0)`)
-    .limit(10);
-
-  const warehouse = await db
-    .select()
-    .from(inventoryLocations)
-    .where(eq(inventoryLocations.code, "WAREHOUSE"))
-    .limit(1);
   const warehouseId = warehouse[0]?.id;
 
-  const warehouseBalances = await db
-    .select({
-      partId: inventoryBalances.partId,
-      quantity: inventoryBalances.quantity,
-    })
-    .from(inventoryBalances)
-    .where(eq(inventoryBalances.locationId, warehouseId ?? ""));
+  // Wave 2 — the two queries that genuinely need the location ids above.
+  const [lowStock, warehouseBalances] = await Promise.all([
+    db
+      .select({
+        id: parts.id,
+        name: parts.name,
+        partNumber: parts.partNumber,
+        unit: parts.unit,
+        minimumShopStock: parts.minimumShopStock,
+        shopStock: sql<number>`coalesce(${inventoryBalances.quantity}, 0)`,
+      })
+      .from(parts)
+      .leftJoin(
+        inventoryBalances,
+        and(
+          eq(inventoryBalances.partId, parts.id),
+          eq(inventoryBalances.locationId, shopId ?? ""),
+        ),
+      )
+      .where(
+        and(
+          eq(parts.isArchived, false),
+          sql`coalesce(${inventoryBalances.quantity}, 0) < ${parts.minimumShopStock}`,
+        ),
+      )
+      .orderBy(sql`coalesce(${inventoryBalances.quantity}, 0)`)
+      .limit(10),
+    db
+      .select({
+        partId: inventoryBalances.partId,
+        quantity: inventoryBalances.quantity,
+      })
+      .from(inventoryBalances)
+      .where(eq(inventoryBalances.locationId, warehouseId ?? "")),
+  ]);
+
   const whMap = new Map(warehouseBalances.map((b: any) => [b.partId, b.quantity]));
 
   const lowStockRows = lowStock.map((r: any) => ({
@@ -210,38 +264,6 @@ export async function getDashboard() {
     shopStock: Number(r.shopStock),
     warehouseStock: whMap.get(r.id) ?? 0,
   }));
-
-  const activeJobRows = await db
-    .select({
-      id: jobs.id,
-      jobNumber: jobs.jobNumber,
-      complaint: jobs.complaint,
-      status: jobs.status,
-      createdAt: jobs.createdAt,
-      customerName: customersTable.name,
-      vehicleType: vehicles.vehicleType,
-    })
-    .from(jobs)
-    .innerJoin(customersTable, eq(jobs.customerId, customersTable.id))
-    .leftJoin(vehicles, eq(jobs.vehicleId, vehicles.id))
-    .where(eq(jobs.status, "OPEN"))
-    .orderBy(desc(jobs.createdAt))
-    .limit(10);
-
-  const recentInvoices = await db
-    .select({
-      id: invoices.id,
-      invoiceNumber: invoices.invoiceNumber,
-      status: invoices.status,
-      total: invoices.total,
-      paidAmount: invoices.paidAmount,
-      createdAt: invoices.createdAt,
-      customerName: customersTable.name,
-    })
-    .from(invoices)
-    .innerJoin(customersTable, eq(invoices.customerId, customersTable.id))
-    .orderBy(desc(invoices.createdAt))
-    .limit(5);
 
   return {
     summary: {

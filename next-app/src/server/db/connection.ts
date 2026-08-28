@@ -44,9 +44,15 @@ function createDb() {
   const { Pool } = require("pg");
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { drizzle: drizzlePg } = require("drizzle-orm/node-postgres");
+  // On serverless every warm instance holds its own pool, so a max of 10 per
+  // instance exhausts the database's connection limit long before traffic
+  // justifies it — and exhausted pools show up as slow requests, not errors.
+  // Keep it small by default; raise DB_POOL_MAX on a long-lived server.
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    max: 10,
+    max: Number(process.env.DB_POOL_MAX ?? 3),
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 10_000,
   });
   return drizzlePg(pool, { schema });
 }

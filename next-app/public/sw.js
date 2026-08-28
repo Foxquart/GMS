@@ -1,4 +1,4 @@
-const CACHE_NAME = "gms-v1";
+const CACHE_NAME = "gms-v2";
 const SHELL = ["/", "/login", "/dashboard"];
 
 self.addEventListener("install", (event) => {
@@ -31,7 +31,13 @@ self.addEventListener("fetch", (event) => {
   // API calls: network-only (offline just fails gracefully).
   if (url.pathname.startsWith("/api/")) return;
 
-  // Static assets: cache-first.
+  // Static assets: stale-while-revalidate.
+  //
+  // This was cache-first, which pinned scripts and styles to whatever was
+  // cached on the first visit. A new release then rendered fresh server markup
+  // against stale client JS — the app looked unchanged and React threw
+  // hydration mismatches. Serve the cached copy for speed, but always refetch
+  // in the background so the next load is current.
   if (
     request.destination === "style" ||
     request.destination === "script" ||
@@ -39,15 +45,18 @@ self.addEventListener("fetch", (event) => {
     request.destination === "image"
   ) {
     event.respondWith(
-      caches.match(request).then(
-        (cached) =>
-          cached ||
-          fetch(request).then((res) => {
-            const copy = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+      caches.match(request).then((cached) => {
+        const network = fetch(request)
+          .then((res) => {
+            if (res && res.ok) {
+              const copy = res.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+            }
             return res;
-          }),
-      ),
+          })
+          .catch(() => cached);
+        return cached || network;
+      }),
     );
     return;
   }

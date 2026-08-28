@@ -65,35 +65,37 @@ export async function getCustomerDetail(id: string) {
     .limit(1);
   if (!customer) throw new ApiError(404, "Customer not found");
 
-  const vehicleList = await db
-    .select()
-    .from(vehicles)
-    .where(eq(vehicles.customerId, id))
-    .orderBy(desc(vehicles.createdAt));
-
-  const jobList = await db
-    .select({
-      id: jobs.id,
-      jobNumber: jobs.jobNumber,
-      complaint: jobs.complaint,
-      status: jobs.status,
-      createdAt: jobs.createdAt,
-      vehicleType: vehicles.vehicleType,
-      total: sql<string>`coalesce((select ${invoices.total} from ${invoices} where ${invoices.jobId} = ${jobs.id}), 0)`,
-    })
-    .from(jobs)
-    .leftJoin(vehicles, eq(jobs.vehicleId, vehicles.id))
-    .where(eq(jobs.customerId, id))
-    .orderBy(desc(jobs.createdAt))
-    .limit(20);
-
-  const invoiceList = await db
-    .select()
-    .from(invoices)
-    .where(eq(invoices.customerId, id))
-    .orderBy(desc(invoices.createdAt));
-
-  const stats = await customerBillingStats(id);
+  // The four reads below are independent of one another — they were four
+  // sequential round trips, which is four times the network latency on a
+  // remote database for no gain.
+  const [vehicleList, jobList, invoiceList, stats] = await Promise.all([
+    db
+      .select()
+      .from(vehicles)
+      .where(eq(vehicles.customerId, id))
+      .orderBy(desc(vehicles.createdAt)),
+    db
+      .select({
+        id: jobs.id,
+        jobNumber: jobs.jobNumber,
+        complaint: jobs.complaint,
+        status: jobs.status,
+        createdAt: jobs.createdAt,
+        vehicleType: vehicles.vehicleType,
+        total: sql<string>`coalesce((select ${invoices.total} from ${invoices} where ${invoices.jobId} = ${jobs.id}), 0)`,
+      })
+      .from(jobs)
+      .leftJoin(vehicles, eq(jobs.vehicleId, vehicles.id))
+      .where(eq(jobs.customerId, id))
+      .orderBy(desc(jobs.createdAt))
+      .limit(20),
+    db
+      .select()
+      .from(invoices)
+      .where(eq(invoices.customerId, id))
+      .orderBy(desc(invoices.createdAt)),
+    customerBillingStats(id),
+  ]);
 
   return {
     customer,
