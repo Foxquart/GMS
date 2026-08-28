@@ -21,6 +21,8 @@ export default function NewPartPage() {
   const [purchasePrice, setPurchasePrice] = useState("");
   const [minimumShopStock, setMinimumShopStock] = useState("5");
   const [minimumWarehouseStock, setMinimumWarehouseStock] = useState("10");
+  const [openingShopStock, setOpeningShopStock] = useState("0");
+  const [openingWarehouseStock, setOpeningWarehouseStock] = useState("0");
   const [unit, setUnit] = useState("pcs");
   const [description, setDescription] = useState("");
   const [showMore, setShowMore] = useState(false);
@@ -55,6 +57,8 @@ export default function NewPartPage() {
           unit: unit || undefined,
           description: description || undefined,
           attributes: attributes.filter((a) => a.label.trim() || a.value.trim()),
+          openingShopStock: Number(openingShopStock || 0),
+          openingWarehouseStock: Number(openingWarehouseStock || 0),
         }),
       }),
     onSuccess: (p: any) => {
@@ -117,6 +121,52 @@ export default function NewPartPage() {
                 />
               </Field>
             </div>
+
+            <div className="border-t border-[var(--hairline)] pt-3.5">
+            <div>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="tile-label text-[var(--ink-label)]">Custom fields</span>
+                <Button type="button" variant="outline" size="sm" onClick={addAttribute}>
+                  <Plus size={14} /> Add field
+                </Button>
+              </div>
+              {!attributes.length ? (
+                <p className="text-xs text-[var(--ink-muted)]">
+                  Add your own spec rows — thread pitch, viscosity, fitment, warranty.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {attributes.map((row, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <Input
+                        value={row.label}
+                        onChange={(e) => setAttribute(i, { label: e.target.value })}
+                        placeholder="Field"
+                        className="flex-1"
+                        aria-label={`Custom field ${i + 1} name`}
+                      />
+                      <Input
+                        value={row.value}
+                        onChange={(e) => setAttribute(i, { value: e.target.value })}
+                        placeholder="Value"
+                        className="flex-1"
+                        aria-label={`Custom field ${i + 1} value`}
+                      />
+                      <CircleButton
+                        type="button"
+                        onDark={false}
+                        onClick={() => removeAttribute(i)}
+                        aria-label={`Remove custom field ${i + 1}`}
+                        className="h-9 w-9 shrink-0"
+                      >
+                        <Trash2 size={15} />
+                      </CircleButton>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            </div>
           </div>
         </section>
 
@@ -151,13 +201,40 @@ export default function NewPartPage() {
         </section>
 
         <section className="rounded-[var(--r-card)] border border-[var(--hairline)] bg-[var(--surface-bright)] p-4 sm:p-5">
-          <SectionHeader
-            title="Stock levels"
-            icon={<Boxes size={16} />}
-            action={
-              <span className="tile-label text-[var(--ink-label)]">Warn me below</span>
-            }
-          />
+          <SectionHeader title="Stock" icon={<Boxes size={16} />} />
+
+          <p className="mb-2 text-xs font-semibold text-[var(--ink-muted)]">
+            How many you have right now. Recorded as opening stock — you do not
+            need to run Stock In afterwards.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="In shop">
+              <Input
+                type="number"
+                min={0}
+                inputMode="numeric"
+                value={openingShopStock}
+                onChange={(e) => setOpeningShopStock(e.target.value)}
+                placeholder="0"
+                className="tabular"
+              />
+            </Field>
+            <Field label="In warehouse">
+              <Input
+                type="number"
+                min={0}
+                inputMode="numeric"
+                value={openingWarehouseStock}
+                onChange={(e) => setOpeningWarehouseStock(e.target.value)}
+                placeholder="0"
+                className="tabular"
+              />
+            </Field>
+          </div>
+
+          <p className="mb-2 mt-4 border-t border-[var(--hairline)] pt-3 text-xs font-semibold text-[var(--ink-muted)]">
+            Warn me when stock falls below these levels.
+          </p>
           <div className="grid grid-cols-3 gap-3">
             <Field label="Min shop">
               <Input
@@ -224,53 +301,11 @@ export default function NewPartPage() {
                   />
                 </Field>
 
-                <div>
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <span className="tile-label text-[var(--ink-label)]">Custom fields</span>
-                    <Button type="button" variant="outline" size="sm" onClick={addAttribute}>
-                      <Plus size={14} /> Add field
-                    </Button>
-                  </div>
-                  {!attributes.length ? (
-                    <p className="text-xs text-[var(--ink-muted)]">
-                      Add your own spec rows — thread pitch, viscosity, fitment, warranty.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {attributes.map((row, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                          <Input
-                            value={row.label}
-                            onChange={(e) => setAttribute(i, { label: e.target.value })}
-                            placeholder="Field"
-                            className="flex-1"
-                            aria-label={`Custom field ${i + 1} name`}
-                          />
-                          <Input
-                            value={row.value}
-                            onChange={(e) => setAttribute(i, { value: e.target.value })}
-                            placeholder="Value"
-                            className="flex-1"
-                            aria-label={`Custom field ${i + 1} value`}
-                          />
-                          <CircleButton
-                            type="button"
-                            onDark={false}
-                            onClick={() => removeAttribute(i)}
-                            aria-label={`Remove custom field ${i + 1}`}
-                            className="h-9 w-9 shrink-0"
-                          >
-                            <Trash2 size={15} />
-                          </CircleButton>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
               </div>
             )}
           </div>
         </section>
+
 
         <Button type="submit" size="lg" className="w-full" disabled={create.isPending}>
           {create.isPending ? "Adding part…" : "Add part"}

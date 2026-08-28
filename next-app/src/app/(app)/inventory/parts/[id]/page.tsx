@@ -14,6 +14,9 @@ import {
   Store,
   Warehouse,
   History,
+  Pencil,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import {
@@ -56,6 +59,17 @@ export default function PartDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const qc = useQueryClient();
+  const [editOpen, setEditOpen] = useState(false);
+  const [eName, setEName] = useState("");
+  const [ePartNumber, setEPartNumber] = useState("");
+  const [eBrand, setEBrand] = useState("");
+  const [eSelling, setESelling] = useState("");
+  const [ePurchase, setEPurchase] = useState("");
+  const [eUnit, setEUnit] = useState("pcs");
+  const [eMinShop, setEMinShop] = useState("0");
+  const [eMinWarehouse, setEMinWarehouse] = useState("0");
+  const [eDescription, setEDescription] = useState("");
+  const [eAttributes, setEAttributes] = useState<{ label: string; value: string }[]>([]);
 
   const [stockInOpen, setStockInOpen] = useState(false);
   const [adjustOpen, setAdjustOpen] = useState(false);
@@ -156,6 +170,51 @@ export default function PartDetailPage() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const saveEdit = useMutation({
+    mutationFn: () =>
+      api("/api/parts", {
+        method: "PATCH",
+        body: JSON.stringify({
+          id,
+          name: eName,
+          partNumber: ePartNumber || null,
+          brand: eBrand || null,
+          sellingPrice: Number(eSelling || 0),
+          purchasePrice: Number(ePurchase || 0),
+          unit: eUnit || "pcs",
+          minimumShopStock: Number(eMinShop || 0),
+          minimumWarehouseStock: Number(eMinWarehouse || 0),
+          description: eDescription || null,
+          attributes: eAttributes.filter((a) => a.label.trim() || a.value.trim()),
+        }),
+      }),
+    onSuccess: () => {
+      toast.success("Part updated");
+      setEditOpen(false);
+      qc.invalidateQueries({ queryKey: ["part", id] });
+      qc.invalidateQueries({ queryKey: ["parts"] });
+      qc.invalidateQueries({ queryKey: ["inventory"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const setEAttr = (i: number, patch: Partial<{ label: string; value: string }>) =>
+    setEAttributes((rows) => rows.map((r, n) => (n === i ? { ...r, ...patch } : r)));
+
+  const openEdit = () => {
+    setEName(part?.name ?? "");
+    setEPartNumber(part?.partNumber ?? "");
+    setEBrand(part?.brand ?? "");
+    setESelling(String(part?.sellingPrice ?? ""));
+    setEPurchase(String(part?.purchasePrice ?? ""));
+    setEUnit(part?.unit ?? "pcs");
+    setEMinShop(String(part?.minimumShopStock ?? 0));
+    setEMinWarehouse(String(part?.minimumWarehouseStock ?? 0));
+    setEDescription(part?.description ?? "");
+    setEAttributes(part?.attributes ?? []);
+    setEditOpen(true);
+  };
+
   if (isPending) {
     return (
       <div className="mx-auto max-w-2xl space-y-5">
@@ -244,9 +303,14 @@ export default function PartDetailPage() {
           </CircleButton>
         }
         trailing={
-          <span className="rounded-full bg-white/18 px-3 py-1.5 text-[11px] font-extrabold tracking-wide">
-            {heroStatus}
-          </span>
+          <>
+            <span className="rounded-full bg-white/18 px-3 py-1.5 text-[11px] font-extrabold tracking-wide">
+              {heroStatus}
+            </span>
+            <CircleButton onClick={openEdit} aria-label="Edit part">
+              <Pencil size={16} />
+            </CircleButton>
+          </>
         }
       >
         <div className="mt-5 flex items-end justify-between gap-4 border-t border-white/15 pt-4">
@@ -553,6 +617,101 @@ export default function PartDetailPage() {
               There is nothing in the warehouse to move.
             </p>
           )}
+        </div>
+      </Sheet>
+
+      {/* ── Edit part ─────────────────────────────────────────────────── */}
+      <Sheet open={editOpen} onClose={() => setEditOpen(false)} title="Edit part">
+        <div className="space-y-4">
+          <Field label="Part name">
+            <Input value={eName} onChange={(e) => setEName(e.target.value)} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Part number">
+              <Input value={ePartNumber} onChange={(e) => setEPartNumber(e.target.value)} />
+            </Field>
+            <Field label="Brand">
+              <Input value={eBrand} onChange={(e) => setEBrand(e.target.value)} />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Selling price (₹)">
+              <Input type="number" min={0} className="tabular" value={eSelling} onChange={(e) => setESelling(e.target.value)} />
+            </Field>
+            <Field label="Purchase price (₹)">
+              <Input type="number" min={0} className="tabular" value={ePurchase} onChange={(e) => setEPurchase(e.target.value)} />
+            </Field>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Min shop">
+              <Input type="number" min={0} className="tabular" value={eMinShop} onChange={(e) => setEMinShop(e.target.value)} />
+            </Field>
+            <Field label="Min w/house">
+              <Input type="number" min={0} className="tabular" value={eMinWarehouse} onChange={(e) => setEMinWarehouse(e.target.value)} />
+            </Field>
+            <Field label="Unit">
+              <Input value={eUnit} onChange={(e) => setEUnit(e.target.value)} />
+            </Field>
+          </div>
+          <Field label="Description">
+            <Textarea rows={3} value={eDescription} onChange={(e) => setEDescription(e.target.value)} />
+          </Field>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className="tile-label text-[var(--ink-label)]">Custom fields</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setEAttributes((r) => [...r, { label: "", value: "" }])}
+              >
+                <Plus size={14} /> Add field
+              </Button>
+            </div>
+            {!eAttributes.length ? (
+              <p className="text-xs text-[var(--ink-muted)]">No custom fields on this part yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {eAttributes.map((row, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <Input
+                      value={row.label}
+                      onChange={(e) => setEAttr(i, { label: e.target.value })}
+                      placeholder="Field"
+                      className="flex-1"
+                      aria-label={`Custom field ${i + 1} name`}
+                    />
+                    <Input
+                      value={row.value}
+                      onChange={(e) => setEAttr(i, { value: e.target.value })}
+                      placeholder="Value"
+                      className="flex-1"
+                      aria-label={`Custom field ${i + 1} value`}
+                    />
+                    <CircleButton
+                      type="button"
+                      onDark={false}
+                      onClick={() => setEAttributes((r) => r.filter((_, n) => n !== i))}
+                      aria-label={`Remove custom field ${i + 1}`}
+                      className="h-9 w-9 shrink-0"
+                    >
+                      <Trash2 size={15} />
+                    </CircleButton>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <Button
+            size="lg"
+            className="w-full"
+            onClick={() => saveEdit.mutate()}
+            disabled={!eName.trim() || saveEdit.isPending}
+          >
+            {saveEdit.isPending ? "Saving…" : "Save changes"}
+          </Button>
         </div>
       </Sheet>
     </div>

@@ -233,12 +233,42 @@ export async function createPart(input: {
   barcode?: string;
   description?: string;
   attributes?: { label: string; value: string }[];
+  /**
+   * Opening stock, counted at the moment the part is added. Without this the
+   * only way to get a number onto the shelf was to save the part, then run
+   * Stock In, then Adjust — three steps to record something the user already
+   * knew when they started typing.
+   */
+  openingShopStock?: number;
+  openingWarehouseStock?: number;
 }) {
-  const [row] = await db
-    .insert(parts)
-    .values({ ...input, attributes: normalizeAttributes(input.attributes) })
-    .returning();
-  return row;
+  const { openingShopStock, openingWarehouseStock, ...partInput } = input;
+  const shopQty = Math.max(0, Math.floor(openingShopStock ?? 0));
+  const warehouseQty = Math.max(0, Math.floor(openingWarehouseStock ?? 0));
+
+  const shop = shopQty > 0 ? await getLocationByCode("SHOP") : null;
+  const warehouse = warehouseQty > 0 ? await getLocationByCode("WAREHOUSE") : null;
+
+  let created: any;
+  await db.transaction(async (tx: any) => {
+    const [row] = await tx
+      .insert(parts)
+      .values({ ...partInput, attributes: normalizeAttributes(input.attributes) })
+      .returning();
+    created = row;
+
+    // Recorded as STOCK_IN so the movement history explains where the
+    // opening figure came from, rather than stock appearing from nowhere.
+    if (shop) {
+      await changeStock(tx, row.id, shop.id, shopQty, "STOCK_IN", undefined, "Opening stock");
+    }
+    if (warehouse) {
+      await changeStock(
+        tx, row.id, warehouse.id, warehouseQty, "STOCK_IN", undefined, "Opening stock",
+      );
+    }
+  });
+  return created;
 }
 
 /**

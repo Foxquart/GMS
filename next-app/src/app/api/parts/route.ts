@@ -41,6 +41,9 @@ export async function POST(request: NextRequest) {
         minimumShopStock: body?.minimumShopStock !== undefined ? Number(body.minimumShopStock) : undefined,
         minimumWarehouseStock: body?.minimumWarehouseStock !== undefined ? Number(body.minimumWarehouseStock) : undefined,
         attributes: Array.isArray(body?.attributes) ? body.attributes : undefined,
+        openingShopStock: body?.openingShopStock !== undefined ? Number(body.openingShopStock) : undefined,
+        openingWarehouseStock:
+          body?.openingWarehouseStock !== undefined ? Number(body.openingWarehouseStock) : undefined,
         unit: body?.unit || undefined,
         barcode: body?.barcode || undefined,
         description: body?.description || undefined,
