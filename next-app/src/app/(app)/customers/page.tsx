@@ -1,13 +1,105 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Search, Plus, Users } from "lucide-react";
+import { IndianRupee, Plus, Search, User, X } from "lucide-react";
 import { api } from "@/lib/api";
-import { Button, Input, Card, EmptyState, Skeleton, Sheet, Badge, ErrorState } from "@/components/ui";
+import {
+  Badge,
+  Button,
+  EmptyState,
+  ErrorState,
+  Field,
+  Input,
+  Skeleton,
+  StatTile,
+  Sheet,
+} from "@/components/ui";
+import { SpotTools } from "@/components/illustrations";
 import { currency } from "@/lib/format";
+import { cn } from "@/lib/cn";
+
+/* ─────────────────────────────────────────────────────────────────────
+   Customer registry.
+
+   The whole job of this page is "who owes me money". Outstanding rows are
+   terracotta and lead with the amount; settled rows are sage and lead with
+   a badge. Every row is the same two-column shape: identity left (min-w-0,
+   truncating), money/status right (shrink-0, tabular) — so nothing collides.
+   ───────────────────────────────────────────────────────────────────── */
+
+type CustomerRow = {
+  id: string;
+  name: string;
+  phone: string;
+  address: string | null;
+  totalJobs: number | string;
+  outstanding: string | number;
+};
+
+const jobsLabel = (n: number) => `${n} ${n === 1 ? "job" : "jobs"}`;
+
+function RegistryRow({ customer }: { customer: CustomerRow }) {
+  const due = Number(customer.outstanding ?? 0);
+  const owes = due > 0;
+  const initial = customer.name?.trim()?.[0]?.toUpperCase();
+
+  return (
+    <Link
+      href={`/customers/${customer.id}`}
+      className="block rounded-[var(--r-tile)]"
+      aria-label={`${customer.name} — ${owes ? `${currency(due)} due` : "account cleared"}`}
+    >
+      <article
+        className={cn(
+          "flex items-center gap-3 rounded-[var(--r-tile)] border bg-[var(--surface-bright)] p-3.5",
+          "transition-[background-color,border-color,translate] duration-150 ease-out",
+          "hover:-translate-y-px hover:bg-[var(--surface)] active:translate-y-0",
+          owes
+            ? "border-[var(--terracotta)]/25 hover:border-[var(--terracotta)]/45"
+            : "border-[var(--hairline)] hover:border-[var(--hairline-strong)]",
+        )}
+      >
+        <span
+          className={cn(
+            "flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--r-control)] text-base font-extrabold",
+            owes
+              ? "bg-[var(--terracotta)]/14 text-[var(--terracotta-hover)]"
+              : "bg-[var(--sage)] text-[var(--forest)]",
+          )}
+          aria-hidden="true"
+        >
+          {initial ?? <User size={18} />}
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-extrabold text-[var(--ink)]">{customer.name}</p>
+          <p className="tabular mt-0.5 truncate text-xs font-semibold text-[var(--ink-muted)]">
+            {customer.phone}
+          </p>
+        </div>
+
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          {owes ? (
+            <span className="tabular text-sm font-extrabold text-[var(--terracotta-hover)]">
+              {currency(due)}
+            </span>
+          ) : (
+            <Badge color="blue" dot>
+              CLEARED
+            </Badge>
+          )}
+          <span className="tile-label text-[var(--ink-label)]">
+            {jobsLabel(Number(customer.totalJobs ?? 0))}
+            {owes ? " · due" : ""}
+          </span>
+        </div>
+      </article>
+    </Link>
+  );
+}
 
 export default function CustomersPage() {
   const qc = useQueryClient();
@@ -20,7 +112,7 @@ export default function CustomersPage() {
 
   const { data: customers, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["customers", search],
-    queryFn: () => api<any[]>("/api/customers", { params: { q: search || undefined } }),
+    queryFn: () => api<CustomerRow[]>("/api/customers", { params: { q: search || undefined } }),
   });
 
   const create = useMutation({
@@ -40,97 +132,163 @@ export default function CustomersPage() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const ledger = useMemo(() => {
+    const rows = customers ?? [];
+    const owing = rows.filter((c) => Number(c.outstanding ?? 0) > 0);
+    return {
+      total: rows.length,
+      owingCount: owing.length,
+      owed: owing.reduce((sum, c) => sum + Number(c.outstanding ?? 0), 0),
+    };
+  }, [customers]);
+
+  const clearSearch = () => {
+    setQ("");
+    setSearch("");
+  };
+
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between border-b border-[#e2e8f0]/50 pb-4">
-        <div>
-          <h1 className="text-2xl font-black tracking-tight text-[#0f172a]">Customer Registry</h1>
-          <p className="text-xs font-semibold text-[#64748b]">Customer profiles & accounts</p>
+      <header className="flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <p className="tile-label text-[var(--ink-label)]">Registry</p>
+          <h1 className="mt-1 text-[clamp(1.5rem,6vw,2rem)] font-extrabold leading-none tracking-tight text-[var(--ink)]">
+            Customers
+          </h1>
         </div>
-        <Button onClick={() => setOpen(true)} className="font-bold">
-          <Plus size={16} /> New Customer
+        <Button onClick={() => setOpen(true)}>
+          <Plus size={16} /> New customer
         </Button>
-      </div>
+      </header>
+
+      {isLoading ? (
+        <Skeleton className="h-[124px] rounded-[var(--r-tile)]" />
+      ) : isError ? null : (
+        <StatTile
+          tone={ledger.owed > 0 ? "terracotta" : "forest"}
+          label={search ? "Owed by these customers" : "Owed to the workshop"}
+          value={<span className="tabular">{currency(ledger.owed)}</span>}
+          icon={<IndianRupee size={18} />}
+          footnote={
+            ledger.owed > 0
+              ? `${ledger.owingCount} of ${ledger.total} ${ledger.total === 1 ? "customer is" : "customers are"} on credit`
+              : `Every one of the ${ledger.total} ${ledger.total === 1 ? "account" : "accounts"} is settled`
+          }
+        />
+      )}
 
       <div className="relative">
-        <Search size={16} className="absolute left-3.5 top-3 text-[#94a3b8]" />
+        <Search
+          size={16}
+          className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--ink-label)]"
+        />
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && setSearch(q)}
-          placeholder="Search by name or phone…"
-          className="pl-10"
+          placeholder="Search by name or phone, then press Enter"
+          aria-label="Search customers by name or phone"
+          className={cn("pl-11", q && "pr-11")}
         />
+        {q && (
+          <button
+            type="button"
+            onClick={clearSearch}
+            aria-label="Clear search"
+            className={cn(
+              "absolute right-2.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full",
+              "text-[var(--ink-label)] transition-[background-color,color,scale] duration-150 ease-out",
+              "hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)] active:scale-90 cursor-pointer",
+            )}
+          >
+            <X size={14} />
+          </button>
+        )}
       </div>
 
       {isLoading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-16 rounded-2xl" />
+        <div className="space-y-2.5" aria-busy="true">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-[70px]" />
           ))}
         </div>
       ) : isError ? (
-        <ErrorState message={(error as Error)?.message} onRetry={() => refetch()} />
-      ) : !customers?.length ? (
-        <EmptyState
-          title="No customers found"
-          description="Add your first customer to get started."
-          icon={<Users size={36} className="text-[#94a3b8]" />}
-          action={
-            <Button onClick={() => setOpen(true)} className="font-bold">
-              <Plus size={16} /> New Customer
-            </Button>
-          }
+        <ErrorState
+          title="Couldn't load your customers"
+          message={(error as Error)?.message}
+          onRetry={() => refetch()}
         />
+      ) : !customers?.length ? (
+        search ? (
+          <EmptyState
+            title={`No match for "${search}"`}
+            description="Try just the last few digits of the phone number, or add them to the registry."
+            illustration={<SpotTools size={84} />}
+            action={
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <Button variant="outline" onClick={clearSearch}>
+                  Clear search
+                </Button>
+                <Button onClick={() => setOpen(true)}>
+                  <Plus size={16} /> New customer
+                </Button>
+              </div>
+            }
+          />
+        ) : (
+          <EmptyState
+            title="The registry is empty"
+            description="Add your first customer — their vehicles, jobs, invoices and payments all hang off this record."
+            illustration={<SpotTools size={84} />}
+            action={
+              <Button onClick={() => setOpen(true)}>
+                <Plus size={16} /> New customer
+              </Button>
+            }
+          />
+        )
       ) : (
         <div className="space-y-2.5">
           {customers.map((c) => (
-            <Link key={c.id} href={`/customers/${c.id}`}>
-              <Card className="flex items-center justify-between p-4 mt-2 transition-all duration-150 hover:bg-[#f1f5f9]/90 hover:border-[#5865f2]/50 hover:-translate-y-0.5">
-                <div className="flex items-center gap-3.5">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#5865f2]/15 text-[#5865f2] border border-[#5865f2]/30 font-bold">
-                    {c.name ? c.name[0].toUpperCase() : <Users size={20} />}
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-[#0f172a]">{c.name}</p>
-                    <p className="text-xs text-[#64748b] mt-0.5">{c.phone}</p>
-                  </div>
-                </div>
-                <div className="text-right flex items-center gap-3">
-                  <div>
-                    <p className="text-xs font-semibold text-[#64748b]">{c.totalJobs} jobs</p>
-                    {Number(c.outstanding) > 0 ? (
-                      <p className="text-xs font-extrabold text-[#b45309]">{currency(c.outstanding)} due</p>
-                    ) : (
-                      <p className="text-xs font-bold text-[#15803d]">Clear</p>
-                    )}
-                  </div>
-                  <Badge color={Number(c.outstanding) > 0 ? "amber" : "green"} dot>
-                    {Number(c.outstanding) > 0 ? "DUE" : "CLEARED"}
-                  </Badge>
-                </div>
-              </Card>
-            </Link>
+            <RegistryRow key={c.id} customer={c} />
           ))}
         </div>
       )}
 
-      <Sheet open={open} onClose={() => setOpen(false)} title="Add New Customer">
+      <Sheet open={open} onClose={() => setOpen(false)} title="New customer">
         <div className="space-y-4">
-          <div>
-            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-[#94a3b8]">Full Name *</span>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Rahul Das" />
-          </div>
-          <div>
-            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-[#94a3b8]">Phone Number *</span>
-            <Input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="98765 43210" />
-          </div>
-          <div>
-            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-[#94a3b8]">Address (optional)</span>
-            <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Enter street address" />
-          </div>
-          <Button className="w-full h-11 font-bold" onClick={() => create.mutate()} disabled={!name || !phone || create.isPending}>
-            {create.isPending ? "Creating..." : "Create Customer"}
+          <Field label="Full name *">
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Rahul Das"
+              autoComplete="name"
+            />
+          </Field>
+          <Field label="Phone number *" hint="Used for calls, WhatsApp and invoice sharing.">
+            <Input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              inputMode="tel"
+              placeholder="98765 43210"
+              autoComplete="tel"
+            />
+          </Field>
+          <Field label="Address (optional)">
+            <Input
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="12 Gandhi Road, Tezpur"
+              autoComplete="street-address"
+            />
+          </Field>
+          <Button
+            size="lg"
+            className="w-full"
+            onClick={() => create.mutate()}
+            disabled={!name || !phone || create.isPending}
+          >
+            {create.isPending ? "Saving…" : "Create customer"}
           </Button>
         </div>
       </Sheet>

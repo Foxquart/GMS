@@ -72,6 +72,18 @@ export async function bootstrap() {
     }
   }
 
+  // ─── Seed default part categories ──────────────────────────────────
+  // Reuse this script's connection for the service layer so importing it does
+  // not spin up a second PGlite instance on the same data directory.
+  (globalThis as any).db = db;
+  const { seedDefaultCategories } = await import("../services/category.service");
+  // Only seeds when the categories table is completely empty, so a deleted
+  // default category does not come back on the next boot.
+  const seededCategories = await seedDefaultCategories(db);
+  if (seededCategories) {
+    console.log(`✅ ${seededCategories} default categories created`);
+  }
+
   // ─── Seed business settings ────────────────────────────────────────
   const [existingSettings] = await db.select().from(schema.settings).limit(1);
   if (!existingSettings) {

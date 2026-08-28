@@ -2,154 +2,245 @@
 
 import { useQuery } from "@tanstack/react-query";
 import {
-  Shield,
   Activity,
   AlertTriangle,
-  Users,
   Database,
-  Server,
-  Clock,
-  CheckCircle,
   FileText,
+  RefreshCw,
+  Server,
+  Users,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import {
+  Badge,
+  BentoGrid,
+  Button,
+  Card,
+  ErrorState,
+  Panel,
+  SectionHeader,
+  Skeleton,
+  StatTile,
+} from "@/components/ui";
+import { formatTime, latencyTone, statusBadgeColor, statusTone } from "./_status";
 
 export default function SuperadminOverviewPage() {
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, error, isRefetching, refetch } = useQuery({
     queryKey: ["superadmin-health"],
     queryFn: () => api<any>("/api/superadmin/health"),
     refetchInterval: 10000,
   });
 
-  if (isLoading) {
+  if (isError && !data) {
     return (
-      <div className="space-y-4 animate-pulse">
-        <div className="h-8 w-48 rounded-xl bg-[#1e293b]" />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-28 rounded-2xl bg-[#1e293b]" />
-          ))}
-        </div>
+      <div className="space-y-5">
+        <OverviewHeader lastCheckAt={null} isRefetching={false} onRefresh={() => refetch()} />
+        <ErrorState
+          title="Health checks didn't come back"
+          message={(error as Error)?.message ?? "The control plane couldn't reach the health endpoint."}
+          onRetry={() => refetch()}
+        />
       </div>
     );
   }
 
+  // Only the first load is blank — polling refetches keep the last reading
+  // on screen so the console never flickers between numbers.
+  if (isLoading) return <OverviewSkeleton />;
+
   const overview = data?.overview ?? {};
+  const dbLatency = Number(data?.database?.latencyMs ?? overview.dbLatencyMs ?? 0);
+  const apiLatency = Number(data?.api?.latencyMs ?? 0);
+  const openAlerts = Number(overview.openAlertsCount ?? 0);
+  const recentAudit: any[] = overview.recentAudit ?? [];
 
   return (
-    <div className="space-y-6">
-      {/* Top Banner / Heading */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-white">System Overview & Operational Health</h1>
-          <p className="text-xs text-slate-400">Real-time status of application infrastructure, database, and admin activity</p>
-        </div>
-        <button
-          onClick={() => refetch()}
-          className="self-start rounded-xl border border-[#334155] bg-[#1e293b] px-3 py-1.5 text-xs font-semibold text-slate-300 hover:bg-[#334155] hover:text-white transition-all"
-        >
-          Refresh Health Checks
-        </button>
-      </div>
+    <div className="space-y-5">
+      <OverviewHeader
+        lastCheckAt={overview.lastCheckAt ?? data?.timestamp ?? null}
+        isRefetching={isRefetching}
+        onRefresh={() => refetch()}
+      />
 
-      {/* Metric Cards Grid */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-2xl border border-[#1e293b] bg-[#0f172a] p-4 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">System Status</span>
-            <CheckCircle className="h-5 w-5 text-[#4ade80]" />
+      <BentoGrid>
+        <StatTile
+          className="col-span-2 min-h-[132px]"
+          tone={statusTone(overview.systemStatus)}
+          label="System status"
+          value={overview.systemStatus || "HEALTHY"}
+          icon={<Activity size={18} />}
+          footnote={
+            statusTone(overview.systemStatus) === "forest"
+              ? "Database and API handlers are both responding."
+              : "One or more components are outside their threshold."
+          }
+        />
+
+        <StatTile
+          tone={latencyTone(dbLatency)}
+          label="Database"
+          value={dbLatency}
+          unit="ms"
+          icon={<Database size={16} />}
+          footnote={`Threshold 500 ms · ${String(data?.database?.status ?? overview.dbStatus ?? "HEALTHY")}`}
+        />
+        <StatTile
+          tone="bright"
+          label="API handlers"
+          value={apiLatency}
+          unit="ms"
+          icon={<Server size={16} />}
+          footnote={String(data?.api?.status ?? "HEALTHY")}
+        />
+
+        <StatTile
+          tone="ochre"
+          label="Garage admins"
+          value={Number(overview.activeAdmins ?? 0)}
+          icon={<Users size={16} />}
+          footnote="Operator accounts on this deployment"
+        />
+        <StatTile
+          tone={openAlerts > 0 ? "terracotta" : "cream"}
+          label="Open alerts"
+          value={openAlerts}
+          icon={<AlertTriangle size={16} />}
+          footnote={openAlerts > 0 ? "Needs an operator to look" : "Nothing above threshold"}
+        />
+      </BentoGrid>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="p-5">
+          <SectionHeader title="Component checks" icon={<Activity size={17} />} />
+          <div className="space-y-2.5">
+            <CheckRow
+              icon={<Database size={16} />}
+              name="PostgreSQL database"
+              detail={data?.database?.details ?? "No diagnostic returned"}
+              status={data?.database?.status}
+              latencyMs={dbLatency}
+            />
+            <CheckRow
+              icon={<Server size={16} />}
+              name="Next.js route handlers"
+              detail={data?.api?.details ?? "No diagnostic returned"}
+              status={data?.api?.status}
+              latencyMs={apiLatency}
+            />
           </div>
-          <p className="text-xl font-extrabold text-white">{overview.systemStatus || "HEALTHY"}</p>
-          <p className="text-[11px] text-slate-400">All services responding normally</p>
-        </div>
+        </Card>
 
-        <div className="rounded-2xl border border-[#1e293b] bg-[#0f172a] p-4 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Database Latency</span>
-            <Database className="h-5 w-5 text-[#5865f2]" />
-          </div>
-          <p className="text-xl font-extrabold text-white">{overview.dbLatencyMs || 0} ms</p>
-          <p className="text-[11px] text-[#4ade80]">Status: {overview.dbStatus || "HEALTHY"}</p>
-        </div>
-
-        <div className="rounded-2xl border border-[#1e293b] bg-[#0f172a] p-4 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Active Admins</span>
-            <Users className="h-5 w-5 text-indigo-400" />
-          </div>
-          <p className="text-xl font-extrabold text-white">{overview.activeAdmins || 0}</p>
-          <p className="text-[11px] text-slate-400">Garage Operators</p>
-        </div>
-
-        <div className="rounded-2xl border border-[#1e293b] bg-[#0f172a] p-4 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Open Alerts</span>
-            <AlertTriangle className="h-5 w-5 text-amber-400" />
-          </div>
-          <p className="text-xl font-extrabold text-white">{overview.openAlertsCount || 0}</p>
-          <p className="text-[11px] text-slate-400">System Warnings</p>
-        </div>
-      </div>
-
-      {/* Operational Details Grid */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* System Health Check Details */}
-        <div className="rounded-2xl border border-[#1e293b] bg-[#0f172a] p-5 space-y-4">
-          <h2 className="text-sm font-bold text-white flex items-center gap-2">
-            <Activity className="h-4 w-4 text-[#5865f2]" />
-            Component Health Checks
-          </h2>
-          <div className="space-y-3 text-xs">
-            <div className="flex items-center justify-between rounded-xl border border-[#1e293b] bg-[#1e293b]/50 p-3">
-              <div className="flex items-center gap-2.5">
-                <Database className="h-4 w-4 text-emerald-400" />
-                <div>
-                  <p className="font-semibold text-white">PostgreSQL Database</p>
-                  <p className="text-[11px] text-slate-400">{data?.database?.details}</p>
-                </div>
-              </div>
-              <span className="rounded-full bg-[#16a34a]/20 px-2.5 py-1 text-[11px] font-bold text-[#4ade80] border border-[#16a34a]/30">
-                {data?.database?.latencyMs} ms
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between rounded-xl border border-[#1e293b] bg-[#1e293b]/50 p-3">
-              <div className="flex items-center gap-2.5">
-                <Server className="h-4 w-4 text-[#5865f2]" />
-                <div>
-                  <p className="font-semibold text-white">Next.js API Handlers</p>
-                  <p className="text-[11px] text-slate-400">{data?.api?.details}</p>
-                </div>
-              </div>
-              <span className="rounded-full bg-[#16a34a]/20 px-2.5 py-1 text-[11px] font-bold text-[#4ade80] border border-[#16a34a]/30">
-                {data?.api?.latencyMs} ms
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Audit Activity Stream */}
-        <div className="rounded-2xl border border-[#1e293b] bg-[#0f172a] p-5 space-y-4">
-          <h2 className="text-sm font-bold text-white flex items-center gap-2">
-            <FileText className="h-4 w-4 text-[#5865f2]" />
-            Recent Activity Log
-          </h2>
-          {!overview.recentAudit?.length ? (
-            <p className="text-xs text-slate-400 p-4 text-center">No recent audit log events recorded</p>
+        <Panel title="Recent activity" icon={<FileText size={17} />}>
+          {recentAudit.length === 0 ? (
+            <p className="rounded-[var(--r-tile)] bg-[var(--forest-deep)] p-4 text-center text-xs font-semibold text-[var(--ink-on-dark-muted)]">
+              No audit events recorded yet. Admin actions will stream in here.
+            </p>
           ) : (
-            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-              {overview.recentAudit.map((log: any) => (
-                <div key={log.id} className="rounded-xl border border-[#1e293b] bg-[#1e293b]/40 p-2.5 text-xs space-y-1">
-                  <div className="flex items-center justify-between font-semibold">
-                    <span className="text-[#5865f2]">{log.action}</span>
-                    <span className="text-[10px] text-slate-400">{new Date(log.createdAt).toLocaleTimeString()}</span>
+            <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
+              {recentAudit.map((log: any) => (
+                <div
+                  key={log.id}
+                  className="flex items-start justify-between gap-3 rounded-[var(--r-tile)] bg-[var(--forest-deep)] px-3 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-extrabold text-[var(--ink-on-dark)]">
+                      {log.action}
+                    </p>
+                    <p className="truncate text-[11px] text-[var(--ink-on-dark-muted)]">
+                      {log.details || log.userName || "System action"}
+                    </p>
                   </div>
-                  <p className="text-slate-300 text-[11px]">{log.details || log.userName || "System Action"}</p>
+                  <span className="tabular shrink-0 text-[11px] font-semibold text-[var(--ink-on-dark-muted)]">
+                    {formatTime(log.createdAt)}
+                  </span>
                 </div>
               ))}
             </div>
           )}
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function OverviewHeader({
+  lastCheckAt,
+  isRefetching,
+  onRefresh,
+}: {
+  lastCheckAt: string | null;
+  isRefetching: boolean;
+  onRefresh: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0">
+        <h1 className="text-xl font-extrabold tracking-tight text-[var(--ink)] sm:text-2xl">
+          System overview
+        </h1>
+        <p className="mt-1 text-sm text-[var(--ink-muted)]">
+          Infrastructure, database and admin activity — polled every 10 seconds.
+          {lastCheckAt ? ` Last reading ${formatTime(lastCheckAt)}.` : ""}
+        </p>
+      </div>
+      <Button variant="outline" size="sm" onClick={onRefresh} disabled={isRefetching} className="self-start">
+        <RefreshCw size={14} className={isRefetching ? "gear-spin" : undefined} />
+        {isRefetching ? "Checking…" : "Run checks now"}
+      </Button>
+    </div>
+  );
+}
+
+function CheckRow({
+  icon,
+  name,
+  detail,
+  status,
+  latencyMs,
+}: {
+  icon: React.ReactNode;
+  name: string;
+  detail: string;
+  status?: string;
+  latencyMs: number;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-[var(--r-tile)] bg-[var(--surface-sunk)] p-3">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <span className="shrink-0 text-[var(--ink-label)]">{icon}</span>
+        <div className="min-w-0">
+          <p className="truncate text-xs font-extrabold text-[var(--ink)]">{name}</p>
+          <p className="truncate text-[11px] text-[var(--ink-muted)]">{detail}</p>
         </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <span className="tabular text-xs font-extrabold text-[var(--ink)]">{latencyMs} ms</span>
+        <Badge color={statusBadgeColor(status)} dot>
+          {(status ?? "HEALTHY").toUpperCase()}
+        </Badge>
+      </div>
+    </div>
+  );
+}
+
+function OverviewSkeleton() {
+  return (
+    <div className="space-y-5" role="status" aria-live="polite">
+      <span className="sr-only">Running system health checks…</span>
+      <div className="space-y-2">
+        <Skeleton className="h-7 w-52 rounded-full" />
+        <Skeleton className="h-4 w-80 rounded-full" />
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
+        <Skeleton className="col-span-2 h-[132px]" />
+        <Skeleton className="h-28" />
+        <Skeleton className="h-28" />
+        <Skeleton className="h-28" />
+        <Skeleton className="h-28" />
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Skeleton className="h-56 rounded-[var(--r-card)]" />
+        <Skeleton className="h-56 rounded-[var(--r-panel)]" />
       </div>
     </div>
   );

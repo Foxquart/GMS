@@ -31,6 +31,77 @@ async function nextJobNumber() {
   return `${prefix}${String(seq).padStart(4, "0")}`;
 }
 
+// Registration numbers are typed by hand, so "WB 12 AB 3456", "wb12ab3456" and
+// "WB-12-AB-3456" all mean the same vehicle.
+function normalizeRegistration(value?: string | null) {
+  return (value ?? "").toLowerCase().replace(/[\s-]/g, "");
+}
+
+/**
+ * Vehicle dedupe rule: a customer must not collect a duplicate vehicle row per
+ * job. When no explicit vehicleId is given we reuse the customer's vehicle whose
+ * registration number matches (case-insensitively, ignoring spaces/hyphens),
+ * refreshing its type/name when the operator typed something new. Without a
+ * registration number we reuse the customer's most recent vehicle when the type
+ * matches. Only when nothing matches do we insert a new vehicle. `linkedVehicleId`
+ * lets an edit fill in a registration number on the job's own (blank) vehicle
+ * instead of spawning a near-duplicate.
+ */
+async function resolveVehicleId(
+  customerId: string,
+  input: { vehicleType?: string; vehicleName?: string; registrationNumber?: string },
+  linkedVehicleId?: string | null,
+) {
+  const vehicleType = (input.vehicleType || "OTHER") as any;
+  const registrationNumber = input.registrationNumber?.trim() || undefined;
+  const key = normalizeRegistration(registrationNumber);
+
+  const owned = await db
+    .select()
+    .from(vehicles)
+    .where(eq(vehicles.customerId, customerId))
+    .orderBy(desc(vehicles.createdAt));
+
+  const linked = linkedVehicleId ? owned.find((v: any) => v.id === linkedVehicleId) : undefined;
+  let match = key
+    ? owned.find((v: any) => normalizeRegistration(v.registrationNumber) === key)
+    : owned[0] && owned[0].vehicleType === vehicleType
+      ? owned[0]
+      : undefined;
+  if (!match && linked && !normalizeRegistration(linked.registrationNumber)) {
+    match = linked;
+  }
+
+  if (match) {
+    const updates: Record<string, unknown> = {};
+    if (input.vehicleType && match.vehicleType !== vehicleType) updates.vehicleType = vehicleType;
+    if (input.vehicleName !== undefined && (input.vehicleName || null) !== match.vehicleName) {
+      updates.vehicleName = input.vehicleName || null;
+    }
+    if (registrationNumber && !match.registrationNumber) {
+      updates.registrationNumber = registrationNumber;
+    }
+    if (Object.keys(updates).length) {
+      await db
+        .update(vehicles)
+        .set({ ...updates, updatedAt: new Date() })
+        .where(eq(vehicles.id, match.id));
+    }
+    return match.id;
+  }
+
+  const [created] = await db
+    .insert(vehicles)
+    .values({
+      customerId,
+      vehicleType,
+      vehicleName: input.vehicleName || null,
+      registrationNumber: registrationNumber ?? null,
+    })
+    .returning();
+  return created.id;
+}
+
 export async function createJob(input: {
   customerId: string;
   vehicleId?: string;
@@ -49,20 +120,13 @@ export async function createJob(input: {
     .limit(1);
   if (!customer) throw new ApiError(404, "Customer not found");
 
-  let vehicleId = input.vehicleId ?? null;
-  if (!vehicleId) {
-    // Create a minimal vehicle record on the fly.
-    const [v] = await db
-      .insert(vehicles)
-      .values({
-        customerId: input.customerId,
-        vehicleType: (input.vehicleType ?? "OTHER") as any,
-        vehicleName: input.vehicleName,
-        registrationNumber: input.registrationNumber,
-      })
-      .returning();
-    vehicleId = v.id;
-  }
+  const vehicleId =
+    input.vehicleId ??
+    (await resolveVehicleId(input.customerId, {
+      vehicleType: input.vehicleType,
+      vehicleName: input.vehicleName,
+      registrationNumber: input.registrationNumber,
+    }));
 
   const jobNumber = await nextJobNumber();
   const [job] = await db
@@ -177,7 +241,16 @@ export async function getJob(id: string) {
 
 export async function updateJob(
   id: string,
-  input: { status?: string; complaint?: string; workNotes?: string; odometerReading?: string },
+  input: {
+    status?: string;
+    complaint?: string;
+    workNotes?: string;
+    odometerReading?: string;
+    customerId?: string;
+    vehicleType?: string;
+    vehicleName?: string;
+    registrationNumber?: string;
+  },
 ) {
   const [job] = await db
     .select()
@@ -186,21 +259,111 @@ export async function updateJob(
     .limit(1);
   if (!job) throw new ApiError(404, "Job not found");
 
-  const updates: Record<string, unknown> = { ...input, updatedAt: new Date() };
-  if (input.status) {
-    if (isTerminalStatus(job.status)) {
+  const { customerId, vehicleType, vehicleName, registrationNumber, ...jobFields } = input;
+  const editsDetails =
+    jobFields.complaint !== undefined ||
+    jobFields.workNotes !== undefined ||
+    jobFields.odometerReading !== undefined ||
+    customerId !== undefined ||
+    vehicleType !== undefined ||
+    vehicleName !== undefined ||
+    registrationNumber !== undefined;
+
+  // A completed job is frozen — its invoice and stock movements already exist.
+  if (editsDetails && job.status !== "OPEN") {
+    throw new ApiError(
+      409,
+      job.status === "COMPLETED"
+        ? "This job is already finished and cannot be changed."
+        : "Reopen this cancelled job before editing it.",
+    );
+  }
+  if (input.status && input.status !== job.status) {
+    if (job.status === "COMPLETED") {
       throw new ApiError(409, "This job is already finished and cannot be changed.");
     }
     if (input.status === "COMPLETED") {
       throw new ApiError(409, "Use the complete-job flow to finish a job.");
     }
+    // OPEN → CANCELLED and CANCELLED → OPEN are both fine.
   }
+
+  const updates: Record<string, unknown> = { ...jobFields, updatedAt: new Date() };
+  if (input.status) updates.status = input.status;
+
+  if (customerId && customerId !== job.customerId) {
+    const [customer] = await db
+      .select()
+      .from(customers)
+      .where(eq(customers.id, customerId))
+      .limit(1);
+    if (!customer) throw new ApiError(404, "Customer not found");
+    updates.customerId = customerId;
+  }
+
+  const movedCustomer = Boolean(customerId && customerId !== job.customerId);
+  if (
+    vehicleType !== undefined ||
+    vehicleName !== undefined ||
+    registrationNumber !== undefined ||
+    movedCustomer
+  ) {
+    // Vehicle edits land on the job's linked vehicle when it is still the same
+    // vehicle, otherwise the dedupe rule reuses or creates the right one.
+    const [current] = job.vehicleId
+      ? await db.select().from(vehicles).where(eq(vehicles.id, job.vehicleId)).limit(1)
+      : [];
+    updates.vehicleId = await resolveVehicleId(
+      customerId ?? job.customerId,
+      {
+        vehicleType: vehicleType ?? current?.vehicleType,
+        vehicleName: vehicleName !== undefined ? vehicleName : (current?.vehicleName ?? undefined),
+        registrationNumber:
+          registrationNumber !== undefined
+            ? registrationNumber
+            : (current?.registrationNumber ?? undefined),
+      },
+      movedCustomer ? null : job.vehicleId,
+    );
+  }
+
   const [row] = await db
     .update(jobs)
     .set(updates)
     .where(eq(jobs.id, id))
     .returning();
   return row;
+}
+
+export async function deleteJob(id: string) {
+  const [job] = await db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.id, id))
+    .limit(1);
+  if (!job) throw new ApiError(404, "Job not found");
+  if (job.status === "COMPLETED") {
+    throw new ApiError(409, "This job is already finished and can no longer be deleted.");
+  }
+
+  const [invoice] = await db
+    .select({ id: invoices.id })
+    .from(invoices)
+    .where(eq(invoices.jobId, id))
+    .limit(1);
+  if (invoice) {
+    throw new ApiError(409, "This job has been invoiced and can no longer be deleted.");
+  }
+
+  // Stock is only deducted when a job is completed, so an unfinished job has no
+  // stock movements to unwind — just its child rows.
+  await db.transaction(async (tx: any) => {
+    await tx.delete(jobParts).where(eq(jobParts.jobId, id));
+    await tx.delete(jobLabour).where(eq(jobLabour.jobId, id));
+    await tx.delete(jobs).where(eq(jobs.id, id));
+  });
+
+  return { id };
 }
 
 // ─── Labour ──────────────────────────────────────────────────────────

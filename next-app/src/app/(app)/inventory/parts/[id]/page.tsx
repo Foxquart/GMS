@@ -5,10 +5,52 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, ArrowDownToLine, Settings2, ArrowLeftRight, Search } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowDownToLine,
+  Settings2,
+  ArrowLeftRight,
+  ArrowRight,
+  Store,
+  Warehouse,
+  History,
+} from "lucide-react";
 import { api } from "@/lib/api";
-import { Button, Input, Select, Textarea, Card, Badge, Skeleton, Sheet, EmptyState, ErrorState } from "@/components/ui";
+import {
+  Badge,
+  BentoGrid,
+  Button,
+  CircleButton,
+  EmptyState,
+  ErrorState,
+  Field,
+  HeroPanel,
+  Input,
+  SectionHeader,
+  Select,
+  Sheet,
+  Skeleton,
+  SpecTile,
+  StatTile,
+  Textarea,
+  Tile,
+  type Tone,
+} from "@/components/ui";
+import { SpotTools } from "@/components/illustrations";
 import { currency, formatDateTime } from "@/lib/format";
+import { cn } from "@/lib/cn";
+
+const movementLabel = (m: string) =>
+  m.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+const movementColor = (m: string) =>
+  m === "STOCK_IN" || m === "TRANSFER_IN"
+    ? "green"
+    : m === "JOB_USAGE" || m === "TRANSFER_OUT"
+      ? "amber"
+      : m === "ADJUSTMENT"
+        ? "blue"
+        : "slate";
 
 export default function PartDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -23,8 +65,9 @@ export default function PartDetailPage() {
   const [location, setLocation] = useState<"SHOP" | "WAREHOUSE">("WAREHOUSE");
   const [newQty, setNewQty] = useState("0");
   const [note, setNote] = useState("");
+  const [supplierId, setSupplierId] = useState("");
 
-  const { data, isLoading, isError, error, refetch } = useQuery({
+  const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ["part", id],
     queryFn: () => api<any>(`/api/parts/${id}`),
   });
@@ -34,15 +77,23 @@ export default function PartDetailPage() {
     queryFn: () => api<any[]>("/api/suppliers"),
   });
 
-  const { data: movements, isLoading: movLoading } = useQuery({
-    queryKey: ["movements", id],
-    queryFn: () => api<any[]>(`/api/inventory/movements`, { params: { partId: id } }),
+  const { data: categories } = useQuery({
+    queryKey: ["categories"],
+    queryFn: () => api<any[]>("/api/categories"),
   });
+
+  const { data: movements, isPending: movPending, isError: movError, refetch: refetchMovements } =
+    useQuery({
+      queryKey: ["movements", id],
+      queryFn: () => api<any[]>("/api/inventory/movements", { params: { partId: id } }),
+    });
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["part", id] });
     qc.invalidateQueries({ queryKey: ["inventory"] });
+    qc.invalidateQueries({ queryKey: ["parts"] });
     qc.invalidateQueries({ queryKey: ["movements", id] });
+    qc.invalidateQueries({ queryKey: ["transfers"] });
     qc.invalidateQueries({ queryKey: ["dashboard"] });
   };
 
@@ -50,13 +101,20 @@ export default function PartDetailPage() {
     mutationFn: () =>
       api("/api/inventory/stock-in", {
         method: "POST",
-        body: JSON.stringify({ partId: id, quantity: Number(qty), locationCode: location, notes: note || undefined }),
+        body: JSON.stringify({
+          partId: id,
+          quantity: Number(qty),
+          locationCode: location,
+          supplierId: supplierId || undefined,
+          notes: note || undefined,
+        }),
       }),
     onSuccess: () => {
-      toast.success("Stock added");
+      toast.success(`${qty} ${data?.unit ?? "pcs"} added to ${location === "SHOP" ? "shop" : "warehouse"}`);
       setStockInOpen(false);
       setQty("1");
       setNote("");
+      setSupplierId("");
       invalidate();
     },
     onError: (e: any) => toast.error(e.message),
@@ -66,10 +124,15 @@ export default function PartDetailPage() {
     mutationFn: () =>
       api("/api/inventory/adjust", {
         method: "POST",
-        body: JSON.stringify({ partId: id, newQuantity: Number(newQty), locationCode: location, notes: note || undefined }),
+        body: JSON.stringify({
+          partId: id,
+          newQuantity: Number(newQty),
+          locationCode: location,
+          notes: note || undefined,
+        }),
       }),
     onSuccess: () => {
-      toast.success("Stock adjusted");
+      toast.success(`${location === "SHOP" ? "Shop" : "Warehouse"} count set to ${newQty}`);
       setAdjustOpen(false);
       setNote("");
       invalidate();
@@ -84,7 +147,7 @@ export default function PartDetailPage() {
         body: JSON.stringify({ partId: id, quantity: Number(qty), notes: note || undefined }),
       }),
     onSuccess: () => {
-      toast.success("Moved from Warehouse to Shop");
+      toast.success(`${qty} moved from warehouse to shop`);
       setTransferOpen(false);
       setQty("1");
       setNote("");
@@ -93,142 +156,281 @@ export default function PartDetailPage() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  if (isLoading) {
+  if (isPending) {
     return (
-      <div className="space-y-3">
-        <Skeleton className="h-8 w-40" />
-        <Skeleton className="h-32 rounded-2xl" />
+      <div className="mx-auto max-w-2xl space-y-5">
+        <Skeleton className="h-48 rounded-[var(--r-panel)]" />
+        <div className="grid grid-cols-3 gap-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 rounded-full" />
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-[86px]" />
+          ))}
+        </div>
       </div>
     );
   }
 
   if (isError) {
     return (
-      <div className="space-y-3">
-        <Skeleton className="h-8 w-40" />
-        <ErrorState message={(error as Error)?.message} onRetry={() => refetch()} />
+      <div className="mx-auto max-w-2xl space-y-5">
+        <div className="flex items-center gap-3">
+          <CircleButton onDark={false} onClick={() => router.back()} aria-label="Back">
+            <ArrowLeft size={18} />
+          </CircleButton>
+          <h1 className="text-xl font-extrabold text-[var(--ink)]">Part</h1>
+        </div>
+        <ErrorState
+          message={(error as Error)?.message ?? "This part didn't load."}
+          onRetry={() => refetch()}
+        />
       </div>
     );
   }
 
-  if (!data) return <EmptyState title="Part not found" />;
+  if (!data) {
+    return (
+      <div className="mx-auto max-w-2xl space-y-5">
+        <EmptyState
+          illustration={<SpotTools size={84} />}
+          title="That part isn't on file"
+          description="It may have been archived or removed from the inventory."
+          action={
+            <Link href="/inventory">
+              <Button variant="outline">Back to inventory</Button>
+            </Link>
+          }
+        />
+      </div>
+    );
+  }
 
   const part = data;
+  const unit = part.unit || "pcs";
   const balances = Object.fromEntries((data.balances ?? []).map((b: any) => [b.code, b.quantity]));
   const shopStock = Number(balances.SHOP ?? 0);
   const warehouseStock = Number(balances.WAREHOUSE ?? 0);
+  const total = shopStock + warehouseStock;
+  const minShop = Number(part.minimumShopStock ?? 0);
+  const minWarehouse = Number(part.minimumWarehouseStock ?? 0);
 
-  const movementLabel = (m: string) =>
-    m.replace("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const categoryName =
+    (categories ?? []).find((c: any) => c.id === part.categoryId)?.name ?? "Uncategorised";
+  const supplierName =
+    (suppliers ?? []).find((s: any) => s.id === part.supplierId)?.name ?? "No supplier";
+
+  const outOfStock = total <= 0;
+  const runningLow = !outOfStock && (shopStock < minShop || warehouseStock < minWarehouse);
+  const heroTone: Tone = outOfStock ? "terracotta" : runningLow ? "ochre" : "forest";
+  const heroStatus = outOfStock ? "Out of stock" : runningLow ? "Running low" : "In stock";
+
+  const shopTone: Tone = shopStock <= 0 ? "terracotta" : shopStock < minShop ? "ochre" : "sage";
+  const warehouseTone: Tone =
+    warehouseStock <= 0 ? "terracotta" : warehouseStock < minWarehouse ? "ochre" : "cream";
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
-      <div className="flex items-center gap-2">
-        <button onClick={() => router.back()} className="rounded-lg p-2 hover:bg-slate-100" aria-label="Back">
-          <ArrowLeft size={20} />
-        </button>
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">{part.name}</h1>
-          <p className="text-sm text-slate-500">{part.partNumber || "No part number"} · {part.brand || "No brand"}</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-3 gap-3">
-        <Card className="p-4 text-center">
-          <p className="text-2xl font-bold text-slate-900">{shopStock}</p>
-          <p className="text-xs font-medium text-slate-500">Shop</p>
-          <p className="text-xs text-slate-400">min {part.minimumShopStock}</p>
-        </Card>
-        <Card className="p-4 text-center">
-          <p className="text-2xl font-bold text-slate-900">{warehouseStock}</p>
-          <p className="text-xs font-medium text-slate-500">Warehouse</p>
-          <p className="text-xs text-slate-400">min {part.minimumWarehouseStock}</p>
-        </Card>
-        <Card className="p-4 text-center">
-          <p className="text-2xl font-bold text-slate-900">{shopStock + warehouseStock}</p>
-          <p className="text-xs font-medium text-slate-500">Total</p>
-          <p className="text-xs text-slate-400">{part.unit || "pcs"}</p>
-        </Card>
-      </div>
-
-      <Card className="p-4">
-        <div className="grid grid-cols-2 gap-3 text-sm">
+    <div className="mx-auto max-w-2xl space-y-5">
+      <HeroPanel
+        tone={heroTone}
+        eyebrow={categoryName}
+        title={part.name}
+        subtitle={`${part.partNumber || "No part number"} · ${part.brand || "No brand"}`}
+        leading={
+          <CircleButton onClick={() => router.back()} aria-label="Back">
+            <ArrowLeft size={18} />
+          </CircleButton>
+        }
+        trailing={
+          <span className="rounded-full bg-white/18 px-3 py-1.5 text-[11px] font-extrabold tracking-wide">
+            {heroStatus}
+          </span>
+        }
+      >
+        <div className="mt-5 flex items-end justify-between gap-4 border-t border-white/15 pt-4">
           <div>
-            <p className="text-slate-500">Selling Price</p>
-            <p className="font-semibold text-slate-900">{currency(part.sellingPrice)}</p>
+            <p className="tile-label opacity-70">Total on hand</p>
+            <p className="numeral mt-1 text-[clamp(2rem,9vw,3rem)]">{total}</p>
           </div>
-          <div>
-            <p className="text-slate-500">Purchase Price</p>
-            <p className="font-semibold text-slate-900">{currency(part.purchasePrice)}</p>
-          </div>
+          <p className="pb-1.5 text-sm font-bold opacity-75">{unit}</p>
         </div>
-        {part.description && <p className="mt-3 text-sm text-slate-600">{part.description}</p>}
-      </Card>
+      </HeroPanel>
 
       <div className="grid grid-cols-3 gap-2">
         <Button onClick={() => setStockInOpen(true)}>
-          <ArrowDownToLine size={16} /> Stock In
+          <ArrowDownToLine size={16} />
+          <span className="truncate">Stock in</span>
         </Button>
-        <Button variant="outline" onClick={() => { setLocation("SHOP"); setAdjustOpen(true); }}>
-          <Settings2 size={16} /> Adjust
+        <Button
+          variant="outline"
+          onClick={() => {
+            setLocation("SHOP");
+            setNewQty(String(shopStock));
+            setAdjustOpen(true);
+          }}
+        >
+          <Settings2 size={16} />
+          <span className="truncate">Adjust</span>
         </Button>
-        <Button variant="outline" onClick={() => setTransferOpen(true)}>
-          <ArrowLeftRight size={16} /> Move to Shop
+        <Button variant="secondary" onClick={() => setTransferOpen(true)}>
+          <ArrowLeftRight size={16} />
+          <span className="truncate">To shop</span>
         </Button>
       </div>
 
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-bold text-slate-900">Movement History</h2>
-          <Link href={`/inventory/movements?partId=${id}`} className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline">
-            <Search size={14} /> All
-          </Link>
+      {/* ── Balances ───────────────────────────────────────────────── */}
+      <section>
+        <SectionHeader title="Where the stock sits" />
+        <BentoGrid>
+          <StatTile
+            tone={shopTone}
+            label="Shop floor"
+            value={shopStock}
+            unit={unit}
+            footnote={`Minimum ${minShop}`}
+            icon={<Store size={18} />}
+          />
+          <StatTile
+            tone={warehouseTone}
+            label="Warehouse"
+            value={warehouseStock}
+            unit={unit}
+            footnote={`Minimum ${minWarehouse}`}
+            icon={<Warehouse size={18} />}
+          />
+        </BentoGrid>
+      </section>
+
+      {/* ── Specification ──────────────────────────────────────────── */}
+      <section>
+        <SectionHeader title="Part details" />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <SpecTile label="Part number" value={part.partNumber || "—"} />
+          <SpecTile label="Brand" value={part.brand || "—"} />
+          <SpecTile label="Category" value={categoryName} />
+          <SpecTile label="Supplier" value={supplierName} />
+          <SpecTile label="Unit" value={unit} />
+          <SpecTile
+            tone="sage"
+            label="Selling price"
+            value={<span className="tabular">{currency(part.sellingPrice)}</span>}
+          />
+          <SpecTile
+            label="Purchase price"
+            value={<span className="tabular">{currency(part.purchasePrice)}</span>}
+          />
+          <SpecTile label="Min shop" value={minShop} />
+          <SpecTile label="Min warehouse" value={minWarehouse} />
         </div>
-        {movLoading ? (
+        {part.description && (
+          <Tile tone="cream" className="mt-3">
+            <p className="tile-label text-[var(--ink-label)]">Notes</p>
+            <p className="mt-1.5 text-sm leading-relaxed text-[var(--ink-muted)]">
+              {part.description}
+            </p>
+          </Tile>
+        )}
+      </section>
+
+      {/* ── Movement history ───────────────────────────────────────── */}
+      <section>
+        <SectionHeader
+          title="Movement history"
+          icon={<History size={16} />}
+          action={
+            <Link
+              href={`/inventory/movements?partId=${id}`}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-extrabold text-[var(--ink-muted)]",
+                "transition-[background-color,color] duration-150 ease-out",
+                "hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)]",
+              )}
+            >
+              See all <ArrowRight size={13} />
+            </Link>
+          }
+        />
+        {movPending ? (
           <div className="space-y-2">
             {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-14 rounded-xl" />
+              <Skeleton key={i} className="h-[62px]" />
             ))}
           </div>
+        ) : movError ? (
+          <ErrorState
+            title="Couldn't load the history"
+            message="The movement log for this part didn't come back."
+            onRetry={() => refetchMovements()}
+          />
         ) : !movements?.length ? (
-          <EmptyState title="No movements yet" />
+          <EmptyState
+            illustration={<SpotTools size={72} />}
+            title="No stock movements yet"
+            description="Stock-ins, adjustments and transfers for this part will be logged here."
+            action={
+              <Button variant="outline" onClick={() => setStockInOpen(true)}>
+                <ArrowDownToLine size={16} /> Record a stock-in
+              </Button>
+            }
+          />
         ) : (
-          <div className="space-y-2">
+          <ul className="space-y-2">
             {movements.slice(0, 8).map((m: any) => (
-              <div key={m.id} className="flex items-center justify-between rounded-xl bg-white p-3 border border-slate-100">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">
-                    {m.quantity > 0 ? "+" : ""}
-                    {m.quantity} {part.unit}
+              <li
+                key={m.id}
+                className="flex items-center gap-3 rounded-[var(--r-tile)] border border-[var(--hairline)] bg-[var(--surface-bright)] p-3.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-extrabold text-[var(--ink)]">
+                    <span
+                      className={cn(
+                        "tabular",
+                        m.quantity > 0 ? "text-[var(--forest)]" : "text-[var(--terracotta-hover)]",
+                      )}
+                    >
+                      {m.quantity > 0 ? "+" : ""}
+                      {m.quantity}
+                    </span>{" "}
+                    {unit}
                   </p>
-                  <p className="text-xs text-slate-500">
-                    {movementLabel(m.movementType)} · {m.locationCode} · {formatDateTime(m.createdAt)}
+                  <p className="mt-0.5 truncate text-xs font-semibold text-[var(--ink-muted)]">
+                    {m.locationCode === "SHOP" ? "Shop" : "Warehouse"} · {formatDateTime(m.createdAt)}
                   </p>
                 </div>
-                <Badge color={m.quantity > 0 ? "green" : "slate"}>{m.movementType}</Badge>
-              </div>
+                <div className="shrink-0">
+                  <Badge color={movementColor(m.movementType)}>
+                    {movementLabel(m.movementType)}
+                  </Badge>
+                </div>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
-      </div>
+      </section>
 
-      {/* Stock in sheet */}
-      <Sheet open={stockInOpen} onClose={() => setStockInOpen(false)} title="Stock In">
-        <div className="space-y-3">
-          <div>
-            <span className="mb-1 block text-sm font-medium text-slate-700">Location</span>
+      {/* ── Stock in ───────────────────────────────────────────────── */}
+      <Sheet open={stockInOpen} onClose={() => setStockInOpen(false)} title="Stock in">
+        <div className="space-y-3.5">
+          <Field label="Location">
             <Select value={location} onChange={(e) => setLocation(e.target.value as any)}>
               <option value="WAREHOUSE">Warehouse</option>
-              <option value="SHOP">Shop</option>
+              <option value="SHOP">Shop floor</option>
             </Select>
-          </div>
-          <div>
-            <span className="mb-1 block text-sm font-medium text-slate-700">Quantity</span>
-            <Input type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />
-          </div>
-          <div>
-            <span className="mb-1 block text-sm font-medium text-slate-700">Supplier (optional)</span>
-            <Select defaultValue="">
+          </Field>
+          <Field label={`Quantity (${unit})`}>
+            <Input
+              type="number"
+              min={1}
+              inputMode="numeric"
+              value={qty}
+              onChange={(e) => setQty(e.target.value)}
+              className="tabular"
+            />
+          </Field>
+          <Field label="Supplier">
+            <Select value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
               <option value="">No supplier</option>
               {(suppliers ?? []).map((s) => (
                 <option key={s.id} value={s.id}>
@@ -236,60 +438,112 @@ export default function PartDetailPage() {
                 </option>
               ))}
             </Select>
-          </div>
-          <div>
-            <span className="mb-1 block text-sm font-medium text-slate-700">Notes (optional)</span>
-            <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
-          </div>
-          <Button className="w-full" onClick={() => stockIn.mutate()} disabled={stockIn.isPending}>
-            Add Stock
+          </Field>
+          <Field label="Notes">
+            <Textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={2}
+              placeholder="Invoice number, delivery note…"
+            />
+          </Field>
+          <Button
+            className="w-full"
+            size="lg"
+            onClick={() => stockIn.mutate()}
+            disabled={stockIn.isPending || Number(qty) < 1}
+          >
+            {stockIn.isPending ? "Adding stock…" : "Add stock"}
           </Button>
         </div>
       </Sheet>
 
-      {/* Adjust sheet */}
-      <Sheet open={adjustOpen} onClose={() => setAdjustOpen(false)} title="Adjust Stock">
-        <div className="space-y-3">
-          <div>
-            <span className="mb-1 block text-sm font-medium text-slate-700">Location</span>
-            <Select value={location} onChange={(e) => setLocation(e.target.value as any)}>
-              <option value="SHOP">Shop</option>
+      {/* ── Adjust ─────────────────────────────────────────────────── */}
+      <Sheet open={adjustOpen} onClose={() => setAdjustOpen(false)} title="Adjust stock">
+        <div className="space-y-3.5">
+          <Field label="Location">
+            <Select
+              value={location}
+              onChange={(e) => {
+                const next = e.target.value as "SHOP" | "WAREHOUSE";
+                setLocation(next);
+                setNewQty(String(next === "SHOP" ? shopStock : warehouseStock));
+              }}
+            >
+              <option value="SHOP">Shop floor</option>
               <option value="WAREHOUSE">Warehouse</option>
             </Select>
-          </div>
-          <div>
-            <span className="mb-1 block text-sm font-medium text-slate-700">New Quantity</span>
-            <Input type="number" min={0} value={newQty} onChange={(e) => setNewQty(e.target.value)} />
-          </div>
-          <div>
-            <span className="mb-1 block text-sm font-medium text-slate-700">Reason (optional)</span>
-            <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
-          </div>
-          <Button className="w-full" onClick={() => adjust.mutate()} disabled={adjust.isPending}>
-            Save Adjustment
+          </Field>
+          <Field
+            label={`Counted quantity (${unit})`}
+            hint={`Currently recorded: ${location === "SHOP" ? shopStock : warehouseStock} ${unit}`}
+          >
+            <Input
+              type="number"
+              min={0}
+              inputMode="numeric"
+              value={newQty}
+              onChange={(e) => setNewQty(e.target.value)}
+              className="tabular"
+            />
+          </Field>
+          <Field label="Reason">
+            <Textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={2}
+              placeholder="Stock count correction, damaged item…"
+            />
+          </Field>
+          <Button
+            className="w-full"
+            size="lg"
+            onClick={() => adjust.mutate()}
+            disabled={adjust.isPending}
+          >
+            {adjust.isPending ? "Saving adjustment…" : "Save adjustment"}
           </Button>
         </div>
       </Sheet>
 
-      {/* Transfer sheet */}
-      <Sheet open={transferOpen} onClose={() => setTransferOpen(false)} title="Move to Shop">
-        <div className="space-y-3">
-          <p className="text-sm text-slate-600">
-            Warehouse has <strong>{warehouseStock}</strong> {part.unit}. Move to Shop.
-          </p>
-          <div>
-            <span className="mb-1 block text-sm font-medium text-slate-700">Quantity</span>
+      {/* ── Move to shop ───────────────────────────────────────────── */}
+      <Sheet open={transferOpen} onClose={() => setTransferOpen(false)} title="Move to shop">
+        <div className="space-y-3.5">
+          <div className="flex items-center justify-between gap-3 rounded-[var(--r-tile)] bg-[var(--surface-sunk)] px-4 py-3">
+            <div>
+              <p className="tile-label text-[var(--ink-label)]">Warehouse</p>
+              <p className="numeral mt-1 text-xl text-[var(--ink)]">{warehouseStock}</p>
+            </div>
+            <ArrowRight size={18} className="shrink-0 text-[var(--ink-label)]" />
+            <div className="text-right">
+              <p className="tile-label text-[var(--ink-label)]">Shop floor</p>
+              <p className="numeral mt-1 text-xl text-[var(--ink)]">{shopStock}</p>
+            </div>
+          </div>
+          <Field label={`Quantity (${unit})`}>
             <Input
               type="number"
               min={1}
               max={warehouseStock}
+              inputMode="numeric"
               value={qty}
               onChange={(e) => setQty(e.target.value)}
+              className="tabular"
             />
-          </div>
-          <Button className="w-full" onClick={() => transfer.mutate()} disabled={transfer.isPending || warehouseStock < 1}>
-            Move to Shop
+          </Field>
+          <Button
+            className="w-full"
+            size="lg"
+            onClick={() => transfer.mutate()}
+            disabled={transfer.isPending || warehouseStock < 1 || Number(qty) < 1}
+          >
+            {transfer.isPending ? "Moving stock…" : "Move to shop"}
           </Button>
+          {warehouseStock < 1 && (
+            <p className="text-center text-xs font-semibold text-[var(--ink-muted)]">
+              There is nothing in the warehouse to move.
+            </p>
+          )}
         </div>
       </Sheet>
     </div>

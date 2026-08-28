@@ -5,13 +5,15 @@ import {
   listCategories,
   createCategory,
   updateCategory,
-} from "@/server/services/inventory.service";
+} from "@/server/services/category.service";
 
 export async function GET(request: NextRequest) {
   try {
     await requireAuth();
-    const includeArchived = request.nextUrl.searchParams.get("archived") === "1";
-    return ok(await listCategories(includeArchived));
+    const sp = request.nextUrl.searchParams;
+    const includeArchived = sp.get("archived") === "1";
+    const q = sp.get("q") ?? undefined;
+    return ok(await listCategories({ q: q || undefined, includeArchived }));
   } catch (err) {
     return handleError(err);
   }
@@ -29,6 +31,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// Backwards-compatible body-with-id update. Prefer PATCH /api/categories/[id].
 export async function PATCH(request: NextRequest) {
   try {
     await requireAuth();

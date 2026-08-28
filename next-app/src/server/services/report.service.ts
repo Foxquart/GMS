@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, ne, sql } from "drizzle-orm";
 import { db } from "@/server/db/connection";
 import {
   customers as customersTable,
@@ -11,6 +11,7 @@ import {
   inventoryBalances,
   vehicles,
 } from "@/server/db/schema";
+import { OUTSTANDING_INVOICE_STATUSES } from "./invoice.service";
 
 function periodStart(period: "daily" | "weekly" | "monthly" | "yearly") {
   const now = new Date();
@@ -38,7 +39,13 @@ export async function getReport(period: "daily" | "weekly" | "monthly" | "yearly
   const [billedRow] = await db
     .select({ total: sql<string>`coalesce(sum(${invoices.total}), 0)` })
     .from(invoices)
-    .where(and(gte(invoices.createdAt, start), lt(invoices.createdAt, now)));
+    .where(
+      and(
+        gte(invoices.createdAt, start),
+        lt(invoices.createdAt, now),
+        ne(invoices.status, "CANCELLED"),
+      ),
+    );
   const [collectedRow] = await db
     .select({ total: sql<string>`coalesce(sum(${payments.amount}), 0)` })
     .from(payments)
@@ -55,14 +62,20 @@ export async function getReport(period: "daily" | "weekly" | "monthly" | "yearly
   const [invoicesRow] = await db
     .select({ total: sql<number>`count(*)` })
     .from(invoices)
-    .where(and(gte(invoices.createdAt, start), lt(invoices.createdAt, now)));
+    .where(
+      and(
+        gte(invoices.createdAt, start),
+        lt(invoices.createdAt, now),
+        ne(invoices.status, "CANCELLED"),
+      ),
+    );
 
   const [outstandingRow] = await db
     .select({
       total: sql<string>`coalesce(sum(${invoices.dueAmount}), 0)`,
     })
     .from(invoices)
-    .where(eq(invoices.status, "PARTIALLY_PAID"));
+    .where(inArray(invoices.status, [...OUTSTANDING_INVOICE_STATUSES]));
 
   const [partsRow] = await db
     .select({ total: sql<number>`coalesce(sum(${stockMovements.quantity} * -1), 0)` })
@@ -97,7 +110,7 @@ export async function getCustomerOutstanding() {
     })
     .from(invoices)
     .innerJoin(customersTable, eq(invoices.customerId, customersTable.id))
-    .where(eq(invoices.status, "PARTIALLY_PAID"))
+    .where(inArray(invoices.status, [...OUTSTANDING_INVOICE_STATUSES]))
     .groupBy(customersTable.id, customersTable.name, customersTable.phone)
     .orderBy(sql`sum(${invoices.dueAmount}) desc`);
 
@@ -128,7 +141,7 @@ export async function getDashboard() {
       total: sql<string>`coalesce(sum(${invoices.dueAmount}), 0)`,
     })
     .from(invoices)
-    .where(eq(invoices.status, "PARTIALLY_PAID"));
+    .where(inArray(invoices.status, [...OUTSTANDING_INVOICE_STATUSES]));
   const [activeJobs] = await db
     .select({ total: sql<number>`count(*)` })
     .from(jobs)

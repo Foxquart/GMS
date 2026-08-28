@@ -9,9 +9,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="min-h-screen bg-[#f1f3f5] text-[#0f172a]">
+    <div className="min-h-screen bg-[var(--canvas)] text-[var(--ink)]">
       <AppNav />
-      <main className="pt-4 pb-20 md:pl-64 md:pt-6 md:pb-8 px-4 md:px-8 max-w-7xl mx-auto">{children}</main>
+      {/* pb clears the floating nav pill on mobile; --nav-inset is 0 on desktop. */}
+      <main className="mx-auto max-w-6xl px-4 pt-5 pb-[calc(var(--nav-inset)+1.5rem)] md:px-8 md:pt-8 md:pb-10 md:pl-72">
+        {children}
+      </main>
     </div>
   );
 }

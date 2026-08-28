@@ -3,8 +3,23 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Users, UserPlus, Shield, Power, Trash2, Key } from "lucide-react";
+import { Power, ShieldCheck, Trash2, UserPlus, Users } from "lucide-react";
 import { api } from "@/lib/api";
+import {
+  Badge,
+  BentoGrid,
+  Button,
+  Card,
+  EmptyState,
+  ErrorState,
+  Field,
+  Input,
+  Sheet,
+  Skeleton,
+  StatTile,
+} from "@/components/ui";
+import { SpotTools } from "@/components/illustrations";
+import { formatWhen } from "../_status";
 
 export default function SuperadminAdminsPage() {
   const qc = useQueryClient();
@@ -13,7 +28,7 @@ export default function SuperadminAdminsPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const { data: admins, isLoading } = useQuery({
+  const { data: admins, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["superadmin-admins"],
     queryFn: () => api<any[]>("/api/superadmin/admins"),
   });
@@ -60,135 +75,234 @@ export default function SuperadminAdminsPage() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const rows = admins ?? [];
+  const activeCount = rows.filter((a: any) => a.isActive).length;
+  const canCreate = Boolean(name && email && password) && !createAdmin.isPending;
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-white">Garage Admin Management</h1>
-          <p className="text-xs text-slate-400">Control garage operator user accounts and access credentials</p>
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl font-extrabold tracking-tight text-[var(--ink)] sm:text-2xl">
+            Admin accounts
+          </h1>
+          <p className="mt-1 text-sm text-[var(--ink-muted)]">
+            Who can sign in to the garage workshop, and with what access.
+          </p>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 rounded-xl bg-[#5865f2] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#4752c4] transition-all shadow-lg shadow-[#5865f2]/20"
-        >
+        <Button size="md" onClick={() => setShowCreate(true)} className="self-start">
           <UserPlus size={16} />
-          <span>Create New Admin</span>
-        </button>
+          New admin
+        </Button>
       </div>
 
-      {showCreate && (
-        <div className="rounded-2xl border border-[#5865f2]/30 bg-[#0f172a] p-5 space-y-4">
-          <h2 className="text-sm font-bold text-white">Create Garage Admin Account</h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div>
-              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Name</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Operator Name"
-                className="w-full rounded-xl border border-[#334155] bg-[#1e293b] px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-[#5865f2] focus:outline-none"
-              />
+      {isError && !admins ? (
+        <ErrorState
+          title="Couldn't load the account list"
+          message={(error as Error)?.message ?? "The admins endpoint didn't respond."}
+          onRetry={() => refetch()}
+        />
+      ) : isLoading ? (
+        <AdminsSkeleton />
+      ) : (
+        <>
+          <BentoGrid className="sm:grid-cols-3">
+            <StatTile
+              tone="ochre"
+              label="Accounts"
+              value={rows.length}
+              icon={<Users size={16} />}
+              footnote="Everyone with a login"
+            />
+            <StatTile
+              tone="sage"
+              label="Active"
+              value={activeCount}
+              icon={<ShieldCheck size={16} />}
+              footnote="Able to sign in right now"
+            />
+            <StatTile
+              className="col-span-2 sm:col-span-1"
+              tone={rows.length - activeCount > 0 ? "terracotta" : "cream"}
+              label="Disabled"
+              value={rows.length - activeCount}
+              icon={<Power size={16} />}
+              footnote="Blocked at sign-in"
+            />
+          </BentoGrid>
+
+          {rows.length === 0 ? (
+            <EmptyState
+              title="No accounts on this deployment"
+              description="Create the first garage admin so someone can open the workshop."
+              illustration={<SpotTools size={84} />}
+              action={
+                <Button size="md" onClick={() => setShowCreate(true)}>
+                  <UserPlus size={16} />
+                  Create the first admin
+                </Button>
+              }
+            />
+          ) : (
+            <div className="space-y-2.5">
+              {rows.map((admin: any) => {
+                const isSuper = String(admin.role ?? "").toUpperCase() === "SUPERADMIN";
+                const togglePending =
+                  toggleStatus.isPending && toggleStatus.variables?.id === admin.id;
+                const deletePending = deleteAdmin.isPending && deleteAdmin.variables === admin.id;
+
+                return (
+                  <Card
+                    key={admin.id}
+                    className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    {/* Identity left, always truncating. */}
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div
+                        className={
+                          isSuper
+                            ? "flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--r-control)] bg-[var(--forest)] text-sm font-extrabold text-[var(--ink-on-dark)]"
+                            : "flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--r-control)] bg-[var(--sage)] text-sm font-extrabold text-[var(--forest)]"
+                        }
+                      >
+                        {String(admin.email ?? "?")[0]?.toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="min-w-0 truncate text-sm font-extrabold text-[var(--ink)]">
+                            {admin.name}
+                          </p>
+                          <Badge color={isSuper ? "green" : "blue"}>{admin.role}</Badge>
+                          <Badge color={admin.isActive ? "slate" : "red"} dot>
+                            {admin.isActive ? "Active" : "Disabled"}
+                          </Badge>
+                        </div>
+                        <p className="mt-0.5 truncate text-xs text-[var(--ink-muted)]">
+                          {admin.email}
+                        </p>
+                        <p className="tile-label mt-1 text-[var(--ink-label)]">
+                          Last sign-in {admin.lastLoginAt ? formatWhen(admin.lastLoginAt) : "never"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Actions right, never wrapping into the identity column. */}
+                    <div className="flex shrink-0 items-center gap-2 self-end sm:self-center">
+                      <Button
+                        variant={admin.isActive ? "outline" : "secondary"}
+                        size="sm"
+                        onClick={() =>
+                          toggleStatus.mutate({ id: admin.id, isActive: !admin.isActive })
+                        }
+                        disabled={isSuper || togglePending}
+                        title={
+                          isSuper
+                            ? "The superadmin account can't be disabled"
+                            : admin.isActive
+                              ? "Block this account from signing in"
+                              : "Let this account sign in again"
+                        }
+                      >
+                        <Power size={14} />
+                        {togglePending ? "Saving…" : admin.isActive ? "Disable" : "Enable"}
+                      </Button>
+
+                      {!isSuper && (
+                        <Button
+                          variant="danger"
+                          size="icon"
+                          aria-label={`Delete ${admin.email}`}
+                          title="Delete account"
+                          disabled={deletePending}
+                          onClick={() => {
+                            if (confirm(`Delete admin account ${admin.email}?`)) {
+                              deleteAdmin.mutate(admin.id);
+                            }
+                          }}
+                        >
+                          <Trash2 size={16} />
+                        </Button>
+                      )}
+                    </div>
+                  </Card>
+                );
+              })}
             </div>
-            <div>
-              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@garage.com"
-                className="w-full rounded-xl border border-[#334155] bg-[#1e293b] px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-[#5865f2] focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
-                className="w-full rounded-xl border border-[#334155] bg-[#1e293b] px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-[#5865f2] focus:outline-none"
-              />
-            </div>
-          </div>
-          <div className="flex gap-2 justify-end pt-2">
-            <button
-              onClick={() => setShowCreate(false)}
-              className="rounded-xl border border-[#334155] bg-[#1e293b] px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-[#334155]"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => createAdmin.mutate()}
-              disabled={!name || !email || !password || createAdmin.isPending}
-              className="rounded-xl bg-[#5865f2] px-4 py-2 text-xs font-bold text-white hover:bg-[#4752c4] disabled:opacity-50"
-            >
-              {createAdmin.isPending ? "Creating..." : "Save Admin User"}
-            </button>
-          </div>
-        </div>
+          )}
+        </>
       )}
 
-      {/* Admin List */}
-      <div className="space-y-3">
-        {(admins ?? []).map((admin) => (
-          <div
-            key={admin.id}
-            className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-[#1e293b] bg-[#0f172a] p-4 text-xs"
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#5865f2]/10 text-[#5865f2] font-bold">
-                {admin.email[0].toUpperCase()}
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="font-bold text-white text-sm">{admin.name}</p>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold border ${
-                      admin.role.toUpperCase() === "SUPERADMIN"
-                        ? "bg-purple-500/20 text-purple-300 border-purple-500/30"
-                        : "bg-[#5865f2]/20 text-[#5865f2] border-[#5865f2]/30"
-                    }`}
-                  >
-                    {admin.role}
-                  </span>
-                </div>
-                <p className="text-slate-400">{admin.email}</p>
-                <p className="text-[10px] text-slate-500 mt-0.5">
-                  Last Login: {admin.lastLoginAt ? new Date(admin.lastLoginAt).toLocaleString() : "Never"}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 self-end sm:self-center">
-              <button
-                onClick={() => toggleStatus.mutate({ id: admin.id, isActive: !admin.isActive })}
-                disabled={admin.role.toUpperCase() === "SUPERADMIN"}
-                className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 font-semibold transition-all ${
-                  admin.isActive
-                    ? "border-emerald-500/30 bg-emerald-500/10 text-[#4ade80] hover:bg-emerald-500/20"
-                    : "border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
-                } disabled:opacity-40`}
-              >
-                <Power size={14} />
-                <span>{admin.isActive ? "Active (Disable)" : "Disabled (Enable)"}</span>
-              </button>
-
-              {admin.role.toUpperCase() !== "SUPERADMIN" && (
-                <button
-                  onClick={() => {
-                    if (confirm(`Delete admin account ${admin.email}?`)) {
-                      deleteAdmin.mutate(admin.id);
-                    }
-                  }}
-                  className="rounded-xl border border-red-500/30 bg-red-500/10 p-2 text-red-400 hover:bg-red-500/20 transition-all"
-                  title="Delete Admin"
-                >
-                  <Trash2 size={16} />
-                </button>
-              )}
-            </div>
+      <Sheet open={showCreate} onClose={() => setShowCreate(false)} title="New garage admin">
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (canCreate) createAdmin.mutate();
+          }}
+        >
+          <p className="text-sm leading-relaxed text-[var(--ink-muted)]">
+            The account is created with the ADMIN role and can sign in immediately.
+          </p>
+          <Field label="Name">
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Priya Nair"
+              autoComplete="off"
+            />
+          </Field>
+          <Field label="Email">
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="priya@yourgarage.com"
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+            />
+          </Field>
+          <Field label="Password" hint="Share it with them directly; they can't reset it themselves.">
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="At least 8 characters"
+              autoComplete="new-password"
+            />
+          </Field>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="md"
+              onClick={() => setShowCreate(false)}
+              disabled={createAdmin.isPending}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" size="md" disabled={!canCreate}>
+              {createAdmin.isPending ? "Creating…" : "Create admin"}
+            </Button>
           </div>
+        </form>
+      </Sheet>
+    </div>
+  );
+}
+
+function AdminsSkeleton() {
+  return (
+    <div className="space-y-5" role="status" aria-live="polite">
+      <span className="sr-only">Loading admin accounts…</span>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
+        <Skeleton className="h-28" />
+        <Skeleton className="h-28" />
+        <Skeleton className="col-span-2 h-28 sm:col-span-1" />
+      </div>
+      <div className="space-y-2.5">
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-[104px] rounded-[var(--r-card)]" />
         ))}
       </div>
     </div>

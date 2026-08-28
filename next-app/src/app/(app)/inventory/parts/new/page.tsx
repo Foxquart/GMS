@@ -2,15 +2,17 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ChevronDown, Package, Coins, Boxes } from "lucide-react";
 import { api } from "@/lib/api";
-import { Button, Input, Field, Textarea, Card } from "@/components/ui";
+import { Button, Input, Field, Textarea, CircleButton, SectionHeader } from "@/components/ui";
 import { AnimatedDropdown } from "@/components/animated-dropdown";
+import { cn } from "@/lib/cn";
 
 export default function NewPartPage() {
   const router = useRouter();
+  const qc = useQueryClient();
   const [name, setName] = useState("");
   const [partNumber, setPartNumber] = useState("");
   const [brand, setBrand] = useState("");
@@ -46,48 +48,54 @@ export default function NewPartPage() {
         }),
       }),
     onSuccess: (p: any) => {
-      toast.success("Part created");
+      toast.success(`${name.trim()} added to inventory`);
+      qc.invalidateQueries({ queryKey: ["inventory"] });
+      qc.invalidateQueries({ queryKey: ["parts"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
       router.push(`/inventory/parts/${p.id}`);
     },
     onError: (e: any) => toast.error(e.message),
   });
 
   return (
-    <div className="mx-auto max-w-lg space-y-4">
-      <div className="flex items-center gap-2">
-        <button onClick={() => router.back()} className="rounded-lg p-2 hover:bg-slate-100 cursor-pointer" aria-label="Back">
-          <ArrowLeft size={20} />
-        </button>
-        <h1 className="text-2xl font-black text-[#0f172a]">New Part</h1>
+    <div className="mx-auto max-w-lg space-y-5">
+      <div className="flex items-center gap-3">
+        <CircleButton onDark={false} onClick={() => router.back()} aria-label="Back">
+          <ArrowLeft size={18} />
+        </CircleButton>
+        <div className="min-w-0">
+          <p className="tile-label text-[var(--ink-label)]">Inventory</p>
+          <h1 className="truncate text-2xl font-extrabold tracking-tight text-[var(--ink)]">
+            New part
+          </h1>
+        </div>
       </div>
 
-      <Card className="space-y-5 p-5 sm:p-6 shadow-sm border border-[#e2e8f0]">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!name.trim()) return toast.error("Part name is required");
-            create.mutate();
-          }}
-          className="space-y-4"
-        >
-          {/* Basic Section */}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!name.trim()) return toast.error("Part name is required");
+          create.mutate();
+        }}
+        className="space-y-5"
+      >
+        <section className="rounded-[var(--r-card)] border border-[var(--hairline)] bg-[var(--surface-bright)] p-4 sm:p-5">
+          <SectionHeader title="What is it?" icon={<Package size={16} />} />
           <div className="space-y-3.5">
-            <h2 className="text-xs font-extrabold uppercase tracking-wider text-[#5865f2]">Basic Info</h2>
-            <Field label="Part Name *">
+            <Field label="Part name">
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Brake Pad / Oil Filter"
+                placeholder="Front brake pad set"
                 required
               />
             </Field>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              <Field label="Brand / Manufacturer">
+            <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+              <Field label="Brand">
                 <Input
                   value={brand}
                   onChange={(e) => setBrand(e.target.value)}
-                  placeholder="e.g. BOSCH / Castrol"
+                  placeholder="Bosch"
                 />
               </Field>
               <Field label="Category">
@@ -95,102 +103,125 @@ export default function NewPartPage() {
                   options={categories ?? []}
                   value={categoryId}
                   onChange={setCategoryId}
-                  placeholder="Select category..."
+                  placeholder="Pick a category"
                 />
               </Field>
             </div>
           </div>
+        </section>
 
-          {/* Pricing & Stock Section */}
-          <div className="space-y-3.5 border-t border-[#e2e8f0] pt-4">
-            <h2 className="text-xs font-extrabold uppercase tracking-wider text-[#5865f2]">Pricing & Stock Limits</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              <Field label="Selling Price (₹)">
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={sellingPrice}
-                  onChange={(e) => setSellingPrice(e.target.value)}
-                  placeholder="0.00"
-                />
-              </Field>
-              <Field label="Purchase Price (₹)">
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={purchasePrice}
-                  onChange={(e) => setPurchasePrice(e.target.value)}
-                  placeholder="0.00"
-                />
-              </Field>
-            </div>
+        <section className="rounded-[var(--r-card)] border border-[var(--hairline)] bg-[var(--surface-bright)] p-4 sm:p-5">
+          <SectionHeader title="Price" icon={<Coins size={16} />} />
+          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+            <Field label="Selling price (₹)">
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                inputMode="decimal"
+                value={sellingPrice}
+                onChange={(e) => setSellingPrice(e.target.value)}
+                placeholder="0.00"
+                className="tabular"
+              />
+            </Field>
+            <Field label="Purchase price (₹)">
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                inputMode="decimal"
+                value={purchasePrice}
+                onChange={(e) => setPurchasePrice(e.target.value)}
+                placeholder="0.00"
+                className="tabular"
+              />
+            </Field>
+          </div>
+        </section>
 
-            <div className="grid grid-cols-3 gap-3">
-              <Field label="Min Shop">
-                <Input
-                  type="number"
-                  min={0}
-                  value={minimumShopStock}
-                  onChange={(e) => setMinimumShopStock(e.target.value)}
-                  placeholder="5"
-                />
-              </Field>
-              <Field label="Min W/house">
-                <Input
-                  type="number"
-                  min={0}
-                  value={minimumWarehouseStock}
-                  onChange={(e) => setMinimumWarehouseStock(e.target.value)}
-                  placeholder="10"
-                />
-              </Field>
-              <Field label="Unit">
-                <Input
-                  value={unit}
-                  onChange={(e) => setUnit(e.target.value)}
-                  placeholder="pcs"
-                />
-              </Field>
-            </div>
+        <section className="rounded-[var(--r-card)] border border-[var(--hairline)] bg-[var(--surface-bright)] p-4 sm:p-5">
+          <SectionHeader
+            title="Stock levels"
+            icon={<Boxes size={16} />}
+            action={
+              <span className="tile-label text-[var(--ink-label)]">Warn me below</span>
+            }
+          />
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Min shop">
+              <Input
+                type="number"
+                min={0}
+                inputMode="numeric"
+                value={minimumShopStock}
+                onChange={(e) => setMinimumShopStock(e.target.value)}
+                placeholder="5"
+                className="tabular"
+              />
+            </Field>
+            <Field label="Min w/house">
+              <Input
+                type="number"
+                min={0}
+                inputMode="numeric"
+                value={minimumWarehouseStock}
+                onChange={(e) => setMinimumWarehouseStock(e.target.value)}
+                placeholder="10"
+                className="tabular"
+              />
+            </Field>
+            <Field label="Unit">
+              <Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="pcs" />
+            </Field>
           </div>
 
-          {/* More details expandable toggle */}
-          <div className="border-t border-[#e2e8f0] pt-3">
+          <div className="mt-4 border-t border-[var(--hairline)] pt-3">
             <button
               type="button"
               onClick={() => setShowMore(!showMore)}
-              className="text-xs font-bold text-[#5865f2] hover:underline cursor-pointer py-1"
+              aria-expanded={showMore}
+              className={cn(
+                "flex w-full cursor-pointer items-center justify-between rounded-full px-3 py-2 text-xs font-extrabold",
+                "text-[var(--ink-muted)] transition-[background-color,color] duration-150 ease-out",
+                "hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)]",
+              )}
             >
-              {showMore ? "− Hide optional details" : "+ More details (Part #, Description)"}
+              <span>{showMore ? "Hide part number and notes" : "Part number and notes"}</span>
+              <ChevronDown
+                size={15}
+                className={cn(
+                  "transition-transform duration-200 ease-out",
+                  showMore && "rotate-180",
+                )}
+              />
             </button>
             {showMore && (
-              <div className="mt-3 space-y-3.5 animate-in fade-in duration-200">
-                <Field label="Part Number">
+              <div className="mt-3 space-y-3.5">
+                <Field label="Part number">
                   <Input
                     value={partNumber}
                     onChange={(e) => setPartNumber(e.target.value)}
-                    placeholder="e.g. BP-100-X"
+                    placeholder="BP-100-X"
                   />
                 </Field>
-                <Field label="Description">
+                <Field label="Description" hint="Fitment notes, specs, anything the counter needs.">
                   <Textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Add specifications, compatibility notes…"
-                    rows={2}
+                    placeholder="Fits 2015–2020 hatchbacks. Sold as a pair."
+                    rows={3}
                   />
                 </Field>
               </div>
             )}
           </div>
+        </section>
 
-          <Button type="submit" className="w-full h-11 font-bold text-base mt-2" disabled={create.isPending}>
-            {create.isPending ? "Creating Part..." : "Create Part"}
-          </Button>
-        </form>
-      </Card>
+        <Button type="submit" size="lg" className="w-full" disabled={create.isPending}>
+          {create.isPending ? "Adding part…" : "Add part"}
+        </Button>
+      </form>
     </div>
   );
 }

@@ -16,6 +16,16 @@ import {
 import { ApiError } from "@/server/lib/http";
 import { getLocationByCode } from "./inventory.service";
 
+/**
+ * Invoice statuses that represent money still owed by the customer
+ * (i.e. everything that is neither fully PAID nor CANCELLED).
+ *
+ * A pure-credit invoice is created as ISSUED with paidAmount = 0, so any
+ * outstanding/credit aggregate MUST cover ISSUED as well as PARTIALLY_PAID.
+ * Every such aggregate reads this constant so the rule cannot drift.
+ */
+export const OUTSTANDING_INVOICE_STATUSES = ["ISSUED", "PARTIALLY_PAID"] as const;
+
 // ─── Invoice numbering: INV-2026-000001 ──────────────────────────────
 async function nextInvoiceNumberTx(tx: any) {
   const [setting] = await tx.select().from(settings).limit(1);

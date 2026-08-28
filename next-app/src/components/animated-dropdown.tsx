@@ -61,18 +61,19 @@ export function AnimatedDropdown({
         disabled={disabled}
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
-          "flex h-10 w-full items-center justify-between rounded-xl border bg-white px-3.5 text-sm transition-all duration-150 cursor-pointer disabled:opacity-50 shadow-sm",
+          "flex h-11 w-full items-center justify-between rounded-[var(--r-control)] border bg-[var(--surface-bright)] px-4 text-sm",
+          "transition-[border-color,color] duration-150 ease-out cursor-pointer disabled:opacity-45",
           isOpen
-            ? "border-[#5865f2] ring-2 ring-[#5865f2]/30 text-[#0f172a]"
-            : "border-[#cbd5e1] text-[#0f172a] hover:border-[#94a3b8]",
-          !selectedOption && "text-[#94a3b8]"
+            ? "border-[var(--forest)] text-[var(--ink)]"
+            : "border-[var(--hairline-strong)] text-[var(--ink)] hover:border-[var(--ink-label)]",
+          !selectedOption && "text-[var(--ink-label)]"
         )}
       >
         <span className="truncate font-medium">{displayLabel}</span>
         <motion.div
           animate={{ rotate: isOpen ? 180 : 0 }}
           transition={{ duration: 0.2, ease: "easeInOut" }}
-          className="shrink-0 text-[#94a3b8] ml-2"
+          className="ml-2 shrink-0 text-[var(--ink-label)]"
         >
           <ChevronDown className="h-4 w-4" />
         </motion.div>
@@ -86,8 +87,8 @@ export function AnimatedDropdown({
             exit={{ opacity: 0, y: -8, scale: 0.97 }}
             transition={{ duration: 0.18, ease: "easeOut" }}
             className={cn(
-              "absolute left-0 right-0 top-[calc(100%+0.375rem)] z-50 max-h-56 overflow-y-auto rounded-xl",
-              "bg-white border border-[#e2e8f0] shadow-xl p-1.5 space-y-0.5"
+              "absolute left-0 right-0 top-[calc(100%+0.375rem)] z-50 max-h-56 overflow-y-auto rounded-[var(--r-tile)]",
+              "space-y-0.5 border border-[var(--hairline)] bg-[var(--surface-bright)] p-1.5 shadow-[var(--lift-2)]"
             )}
           >
             <motion.div
@@ -106,14 +107,15 @@ export function AnimatedDropdown({
                   }}
                   onClick={() => handleSelect("")}
                   className={cn(
-                    "flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-semibold transition-colors cursor-pointer",
+                    "flex w-full cursor-pointer items-center justify-between rounded-full px-3.5 py-2 text-xs font-bold",
+                    "transition-colors duration-150 ease-out",
                     value === ""
-                      ? "bg-[#5865f2]/10 text-[#4752c4]"
-                      : "text-[#64748b] hover:bg-[#f1f5f9] hover:text-[#0f172a]"
+                      ? "bg-[var(--sage)] text-[var(--forest)]"
+                      : "text-[var(--ink-muted)] hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)]"
                   )}
                 >
                   <span>{clearLabel}</span>
-                  {value === "" && <Check className="h-3.5 w-3.5 text-[#5865f2]" />}
+                  {value === "" && <Check className="h-3.5 w-3.5 text-[var(--forest)]" />}
                 </motion.button>
               )}
 
@@ -129,14 +131,15 @@ export function AnimatedDropdown({
                     }}
                     onClick={() => handleSelect(opt.id)}
                     className={cn(
-                      "flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-semibold transition-colors cursor-pointer",
+                      "flex w-full cursor-pointer items-center justify-between rounded-full px-3.5 py-2 text-xs font-bold",
+                      "transition-colors duration-150 ease-out",
                       isSelected
-                        ? "bg-[#5865f2]/10 text-[#4752c4] font-bold"
-                        : "text-[#334155] hover:bg-[#f1f5f9] hover:text-[#0f172a]"
+                        ? "bg-[var(--sage)] text-[var(--forest)]"
+                        : "text-[var(--ink-muted)] hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)]"
                     )}
                   >
                     <span className="truncate">{opt.name}</span>
-                    {isSelected && <Check className="h-3.5 w-3.5 text-[#5865f2] shrink-0" />}
+                    {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-[var(--forest)]" />}
                   </motion.button>
                 );
               })}

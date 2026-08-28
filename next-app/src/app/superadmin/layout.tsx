@@ -12,10 +12,11 @@ import {
   Server,
   LogOut,
   ArrowLeft,
-  CheckCircle,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { Button, Skeleton } from "@/components/ui";
+import { SpotCone } from "@/components/illustrations";
 
 const NAV_ITEMS = [
   { href: "/superadmin", label: "Overview", icon: Shield },
@@ -23,7 +24,7 @@ const NAV_ITEMS = [
   { href: "/superadmin/alerts", label: "Alerts", icon: AlertTriangle },
   { href: "/superadmin/admins", label: "Admins", icon: Users },
   { href: "/superadmin/activity", label: "Activity", icon: FileText },
-  { href: "/superadmin/system", label: "System Info", icon: Server },
+  { href: "/superadmin/system", label: "System info", icon: Server },
 ];
 
 export default function SuperadminLayout({ children }: { children: React.ReactNode }) {
@@ -41,12 +42,23 @@ export default function SuperadminLayout({ children }: { children: React.ReactNo
     router.refresh();
   };
 
+  // The console chrome is the thing that takes a moment to authorise — so
+  // paint its shape rather than a spinner on a dark field.
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#0f172a] text-white">
-        <div className="flex items-center gap-3">
-          <Shield className="h-6 w-6 animate-pulse text-[#5865f2]" />
-          <span className="text-sm font-semibold">Loading Developer Control Plane...</span>
+      <div className="min-h-screen bg-[var(--canvas)]" role="status" aria-live="polite">
+        <span className="sr-only">Checking your operator access…</span>
+        <div className="h-16 bg-[var(--forest)]" />
+        <div className="border-b border-[var(--hairline)] bg-[var(--surface)] px-4 py-2.5 md:px-8">
+          <div className="mx-auto flex max-w-6xl gap-2">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <Skeleton key={i} className="h-8 w-24 rounded-full" />
+            ))}
+          </div>
+        </div>
+        <div className="mx-auto max-w-6xl space-y-4 px-4 py-6 md:px-8">
+          <Skeleton className="h-6 w-56 rounded-full" />
+          <Skeleton className="h-40 rounded-[var(--r-card)]" />
         </div>
       </div>
     );
@@ -59,56 +71,71 @@ export default function SuperadminLayout({ children }: { children: React.ReactNo
 
   if (user.role?.toUpperCase() !== "SUPERADMIN") {
     return (
-      <div className="flex h-screen flex-col items-center justify-center bg-[#0f172a] text-white p-4">
-        <AlertTriangle className="h-12 w-12 text-amber-500 mb-4" />
-        <h1 className="text-xl font-bold mb-2">Access Denied</h1>
-        <p className="text-sm text-slate-400 mb-6 text-center max-w-md">
-          Developer Superadmin control plane requires SUPERADMIN role permissions. Your account ({user.email}) is configured as {user.role}.
-        </p>
-        <Link href="/dashboard" className="rounded-xl bg-[#5865f2] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#4752c4]">
-          Return to Garage Workshop
-        </Link>
+      <div className="flex min-h-screen items-center justify-center bg-[var(--canvas)] px-4 py-10">
+        <div className="w-full max-w-md rounded-[var(--r-panel)] border border-[var(--hairline)] bg-[var(--surface-bright)] p-8 text-center">
+          <SpotCone size={84} className="mx-auto" />
+          <h1 className="mt-4 text-xl font-extrabold tracking-tight text-[var(--ink)]">
+            This console is operator-only
+          </h1>
+          <p className="mx-auto mt-2 max-w-[42ch] text-sm leading-relaxed text-[var(--ink-muted)]">
+            The control plane needs the SUPERADMIN role. Your account{" "}
+            <span className="font-bold text-[var(--ink)]">{user.email}</span> is signed in as{" "}
+            <span className="font-bold text-[var(--ink)]">{user.role}</span>.
+          </p>
+          <Link href="/dashboard" className="mt-6 inline-block">
+            <Button variant="primary" size="md">
+              <ArrowLeft size={16} />
+              Back to the workshop
+            </Button>
+          </Link>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0b0f19] text-[#f8fafc]">
-      {/* Top Control Bar */}
-      <header className="sticky top-0 z-50 border-b border-[#1e293b] bg-[#0f172a]/95 backdrop-blur-md px-4 md:px-8 py-3">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#5865f2] text-white shadow-lg shadow-[#5865f2]/25">
-              <Shield size={20} />
+    <div className="min-h-screen bg-[var(--canvas)] text-[var(--ink)]">
+      {/* Operator bar. Forest fill: this console is deliberately graver than
+          the owner-facing app, using the same palette rather than a new one. */}
+      <header className="sticky top-0 z-40 bg-[var(--forest)] text-[var(--ink-on-dark)]">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4 md:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--r-control)] bg-[var(--forest-deep)]">
+              <Shield size={18} />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-bold tracking-wide text-white">Superadmin Control Plane</span>
-                <span className="rounded-full bg-[#16a34a]/20 px-2 py-0.5 text-[10px] font-bold text-[#4ade80] border border-[#16a34a]/30">
-                  Platform Operator
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-400">Observability & Admin Access Control</p>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-extrabold tracking-tight">Control plane</p>
+              <p className="truncate text-[11px] font-semibold text-[var(--ink-on-dark-muted)]">
+                Observability &amp; admin access
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2">
             <Link
               href="/dashboard"
-              className="hidden md:flex items-center gap-1.5 rounded-xl border border-[#334155] bg-[#1e293b] px-3 py-1.5 text-xs font-semibold text-slate-300 hover:bg-[#334155] hover:text-white transition-all"
+              className={cn(
+                "hidden items-center gap-1.5 rounded-full bg-[var(--forest-deep)] px-3.5 py-2 text-xs font-bold",
+                "text-[var(--ink-on-dark)] transition-[background-color,transform] duration-150 ease-out",
+                "hover:bg-[var(--forest-hover)] active:scale-[0.97] md:inline-flex",
+              )}
             >
               <ArrowLeft size={14} />
-              <span>Garage Workshop</span>
+              Workshop
             </Link>
-            <div className="h-6 w-[1px] bg-[#334155] hidden md:block" />
-            <div className="text-right hidden sm:block">
-              <p className="text-xs font-semibold text-white">{user?.email}</p>
-              <p className="text-[10px] text-[#4ade80]">SUPERADMIN</p>
+            <div className="hidden text-right sm:block">
+              <p className="max-w-[16rem] truncate text-xs font-bold">{user.email}</p>
+              <p className="tile-label text-[var(--ink-on-dark-muted)]">Superadmin</p>
             </div>
             <button
               onClick={logout}
-              className="rounded-xl border border-[#334155] bg-[#1e293b] p-2 text-slate-400 hover:bg-[#ef4444]/20 hover:text-[#ef4444] transition-colors"
-              title="Logout"
+              title="Sign out"
+              aria-label="Sign out"
+              className={cn(
+                "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--forest-deep)]",
+                "text-[var(--ink-on-dark-muted)] transition-[background-color,color,transform] duration-150 ease-out",
+                "hover:bg-[var(--terracotta)] hover:text-[#fdf6f2] active:scale-90 cursor-pointer",
+              )}
             >
               <LogOut size={16} />
             </button>
@@ -116,21 +143,23 @@ export default function SuperadminLayout({ children }: { children: React.ReactNo
         </div>
       </header>
 
-      {/* Control Plane Navigation Tabs */}
-      <div className="border-b border-[#1e293b] bg-[#0f172a]/60 px-4 md:px-8 py-2">
-        <div className="mx-auto flex max-w-7xl items-center gap-1.5 overflow-x-auto no-scrollbar">
+      <nav className="border-b border-[var(--hairline)] bg-[var(--surface)]">
+        <div className="mx-auto flex max-w-6xl items-center gap-1.5 overflow-x-auto px-4 py-2.5 md:px-8">
           {NAV_ITEMS.map((item) => {
-            const active = item.href === "/superadmin" ? pathname === "/superadmin" : pathname.startsWith(item.href);
+            const active =
+              item.href === "/superadmin" ? pathname === "/superadmin" : pathname.startsWith(item.href);
             const Icon = item.icon;
             return (
               <Link
                 key={item.href}
                 href={item.href}
+                aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold transition-all whitespace-nowrap",
+                  "inline-flex shrink-0 items-center gap-2 rounded-full px-3.5 py-2 text-xs font-bold whitespace-nowrap",
+                  "transition-[background-color,color] duration-150 ease-out",
                   active
-                    ? "bg-[#5865f2] text-white shadow-md shadow-[#5865f2]/20"
-                    : "text-slate-400 hover:bg-[#1e293b] hover:text-white",
+                    ? "bg-[var(--forest)] text-[var(--ink-on-dark)]"
+                    : "text-[var(--ink-muted)] hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)]",
                 )}
               >
                 <Icon size={15} />
@@ -139,10 +168,9 @@ export default function SuperadminLayout({ children }: { children: React.ReactNo
             );
           })}
         </div>
-      </div>
+      </nav>
 
-      {/* Main Content Area */}
-      <main className="mx-auto max-w-7xl p-4 md:p-8">{children}</main>
+      <main className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">{children}</main>
     </div>
   );
 }

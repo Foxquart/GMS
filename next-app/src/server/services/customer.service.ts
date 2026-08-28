@@ -1,7 +1,8 @@
-import { and, desc, eq, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "@/server/db/connection";
 import { customers, vehicles, jobs, invoices, payments } from "@/server/db/schema";
 import { ApiError } from "@/server/lib/http";
+import { OUTSTANDING_INVOICE_STATUSES } from "./invoice.service";
 
 const CUSTOMER_VEHICLE_TYPE_VALUES = ["CAR", "BIKE", "SCOOTY", "AUTO", "OTHER"] as const;
 
@@ -25,7 +26,7 @@ export async function listCustomers(opts: { q?: string }) {
       address: customers.address,
       createdAt: customers.createdAt,
       totalJobs: sql<number>`(select count(*) from ${jobs} where ${jobs.customerId} = ${customers.id})`,
-      outstanding: sql<string>`coalesce((select sum(${invoices.dueAmount}) from ${invoices} where ${invoices.customerId} = ${customers.id} and ${invoices.status} in ('ISSUED','PARTIALLY_PAID')), 0)`,
+      outstanding: sql<string>`coalesce((select sum(${invoices.dueAmount}) from ${invoices} where ${invoices.customerId} = ${customers.id} and ${inArray(invoices.status, [...OUTSTANDING_INVOICE_STATUSES])}), 0)`,
     })
     .from(customers)
     .where(conditions.length ? and(...conditions) : undefined)
@@ -92,25 +93,14 @@ export async function getCustomerDetail(id: string) {
     .where(eq(invoices.customerId, id))
     .orderBy(desc(invoices.createdAt));
 
-  const totals = await db
-    .select({
-      billed: sql<string>`coalesce(sum(${invoices.total}), 0)`,
-      paid: sql<string>`coalesce(sum(${payments.amount}), 0)`,
-    })
-    .from(invoices)
-    .leftJoin(payments, eq(payments.invoiceId, invoices.id))
-    .where(eq(invoices.customerId, id));
+  const stats = await customerBillingStats(id);
 
   return {
     customer,
     vehicles: vehicleList,
     jobs: jobList,
     invoices: invoiceList,
-    stats: {
-      billed: Number(totals[0]?.billed ?? 0),
-      paid: Number(totals[0]?.paid ?? 0),
-      outstanding: Number(totals[0]?.billed ?? 0) - Number(totals[0]?.paid ?? 0),
-    },
+    stats,
   };
 }
 
@@ -140,18 +130,64 @@ export async function listVehicles(customerId?: string) {
   return db.select().from(vehicles).orderBy(desc(vehicles.createdAt));
 }
 
-export async function getCustomerSummary(id: string) {
-  const [billed] = await db
-    .select({ total: sql<string>`coalesce(sum(${invoices.total}), 0)` })
+/**
+ * Billing figures for one customer.
+ *
+ * Each figure is its own aggregate — joining invoices to payments would
+ * multiply an invoice's `total` by its number of payments, inflating
+ * "billed"/"due" as soon as a customer part-pays twice. CANCELLED invoices
+ * never count, and `outstanding` is summed from `invoices.dueAmount` so it
+ * always matches the per-invoice numbers listed on the customer page.
+ */
+export async function customerBillingStats(id: string) {
+  const notCancelled = and(
+    eq(invoices.customerId, id),
+    ne(invoices.status, "CANCELLED"),
+  );
+
+  const [billedRow] = await db
+    .select({
+      billed: sql<string>`coalesce(sum(${invoices.total}), 0)`,
+      outstanding: sql<string>`coalesce(sum(${invoices.dueAmount}), 0)`,
+      invoiceCount: sql<number>`count(*)`,
+    })
     .from(invoices)
-    .where(eq(invoices.customerId, id));
-  const [paid] = await db
-    .select({ total: sql<string>`coalesce(sum(${payments.amount}), 0)` })
+    .where(notCancelled);
+
+  // One row per payment, joined 1:1 to its invoice — no fan-out.
+  const [paidRow] = await db
+    .select({ paid: sql<string>`coalesce(sum(${payments.amount}), 0)` })
     .from(payments)
-    .where(eq(payments.customerId, id));
+    .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
+    .where(notCancelled);
+
+  const [jobRow] = await db
+    .select({ jobCount: sql<number>`count(*)` })
+    .from(jobs)
+    .where(eq(jobs.customerId, id));
+
+  const [unpaidRow] = await db
+    .select({ unpaidInvoices: sql<number>`count(*)` })
+    .from(invoices)
+    .where(
+      and(
+        eq(invoices.customerId, id),
+        inArray(invoices.status, [...OUTSTANDING_INVOICE_STATUSES]),
+        sql`${invoices.dueAmount} > 0`,
+      ),
+    );
+
   return {
-    billed: Number(billed?.total ?? 0),
-    paid: Number(paid?.total ?? 0),
-    outstanding: Number(billed?.total ?? 0) - Number(paid?.total ?? 0),
+    billed: Number(billedRow?.billed ?? 0),
+    paid: Number(paidRow?.paid ?? 0),
+    outstanding: Number(billedRow?.outstanding ?? 0),
+    invoiceCount: Number(billedRow?.invoiceCount ?? 0),
+    unpaidInvoiceCount: Number(unpaidRow?.unpaidInvoices ?? 0),
+    jobCount: Number(jobRow?.jobCount ?? 0),
   };
+}
+
+export async function getCustomerSummary(id: string) {
+  const { billed, paid, outstanding } = await customerBillingStats(id);
+  return { billed, paid, outstanding };
 }

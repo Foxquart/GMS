@@ -119,6 +119,11 @@ export async function ensureDbSetup() {
         }
       }
 
+      // Seed default part categories (only when the table is completely empty,
+      // so a deleted default category does not come back on the next boot).
+      const { seedDefaultCategories } = await import("../services/category.service");
+      await seedDefaultCategories(db);
+
       // Seed business settings.
       const [existingSettings] = await db.select().from(schema.settings).limit(1);
       if (!existingSettings) {

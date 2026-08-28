@@ -119,31 +119,17 @@ async function changeStock(
 }
 
 // ─── Categories ──────────────────────────────────────────────────────
-export async function listCategories(includeArchived = false) {
-  return db
-    .select()
-    .from(categories)
-    .where(includeArchived ? undefined : eq(categories.isArchived, false))
-    .orderBy(categories.name);
-}
-
-export async function createCategory(input: { name: string; description?: string }) {
-  const [row] = await db.insert(categories).values(input).returning();
-  return row;
-}
-
-export async function updateCategory(
-  id: string,
-  input: { name?: string; description?: string; isArchived?: boolean },
-) {
-  const [row] = await db
-    .update(categories)
-    .set({ ...input, updatedAt: new Date() })
-    .where(eq(categories.id, id))
-    .returning();
-  if (!row) throw new ApiError(404, "Category not found");
-  return row;
-}
+// Category logic now lives in category.service.ts; re-exported here so existing
+// imports of these helpers keep working.
+export {
+  listCategories,
+  getCategory,
+  createCategory,
+  updateCategory,
+  deleteCategory,
+  seedDefaultCategories,
+  DEFAULT_CATEGORIES,
+} from "./category.service";
 
 // ─── Suppliers ───────────────────────────────────────────────────────
 export async function listSuppliers() {
