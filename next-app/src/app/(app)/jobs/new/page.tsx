@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, UserPlus, User, Car, Sparkles } from "lucide-react";
 import { ApiClientError, api, errorMessage, errorReference } from "@/lib/api";
@@ -18,7 +18,8 @@ import {
   SectionHeader,
 } from "@/components/ui";
 import { AnimatedDropdown } from "@/components/animated-dropdown";
-import { VEHICLE_TYPES, vehicleTypeLabel } from "@/lib/format";
+import { SearchSelect } from "@/components/search-select";
+import { VEHICLE_TYPES, currency, vehicleTypeLabel } from "@/lib/format";
 import { VEHICLE_SPOT } from "@/components/illustrations";
 
 export default function NewJobPage() {
@@ -74,7 +75,14 @@ function NewJobForm() {
   const presetCustomerId = searchParams.get("customerId") ?? "";
 
   const [customerId, setCustomerId] = useState(presetCustomerId);
+  // Once someone is chosen the picker collapses to a summary of them; Change
+  // opens it again. A deep link arrives already chosen.
   const [lockedCustomer, setLockedCustomer] = useState(Boolean(presetCustomerId));
+  // The chosen customer as last seen. The search results are whatever was
+  // typed last, so the pick has to survive the list moving on underneath it.
+  const [chosen, setChosen] = useState<any>(null);
+  const [customerQ, setCustomerQ] = useState("");
+  const [customerSearch, setCustomerSearch] = useState("");
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -86,14 +94,24 @@ function NewJobForm() {
   const [customerError, setCustomerError] = useState<unknown>(null);
   const [jobError, setJobError] = useState<unknown>(null);
 
+  // Typing searches on its own — the registry is a list you look someone up
+  // in, not a menu you scroll.
+  useEffect(() => {
+    const t = setTimeout(() => setCustomerSearch(customerQ.trim()), 250);
+    return () => clearTimeout(t);
+  }, [customerQ]);
+
   const {
     data: customers,
+    isPending: customersPending,
+    isFetching: customersFetching,
     isError: customersFailed,
     error: customersError,
     refetch: refetchCustomers,
   } = useQuery({
-    queryKey: ["customers"],
-    queryFn: () => api<any[]>("/api/customers"),
+    queryKey: ["customers", customerSearch],
+    queryFn: () => api<any[]>("/api/customers", { params: { q: customerSearch || undefined } }),
+    placeholderData: keepPreviousData,
   });
 
   // Newest-first list of this customer's vehicles (Bug 3: autofill last visit).
@@ -103,7 +121,9 @@ function NewJobForm() {
     enabled: Boolean(customerId),
   });
 
-  const selectedCustomer = (customers ?? []).find((c) => c.id === customerId);
+  const selectedCustomer =
+    (chosen?.id === customerId ? chosen : null) ?? (customers ?? []).find((c) => c.id === customerId);
+
 
   const vehicles = customerId ? (customerVehicles ?? []) : [];
   const pickedId = picked?.customerId === customerId ? picked.id : "";
@@ -130,8 +150,10 @@ function NewJobForm() {
     }));
   };
 
-  const selectCustomer = (id: string) => {
+  const selectCustomer = (id: string, customer?: any) => {
     setCustomerId(id);
+    setChosen(customer ?? null);
+    setLockedCustomer(Boolean(id));
     setEdits({ customerId: id });
     setPicked(null);
     setJobError(null);
@@ -144,7 +166,7 @@ function NewJobForm() {
         body: JSON.stringify({ name: customerName, phone: customerPhone }),
       }),
     onSuccess: (c: any) => {
-      selectCustomer(c.id);
+      selectCustomer(c.id, c);
       setShowNewCustomer(false);
       setCustomerName("");
       setCustomerPhone("");
@@ -158,8 +180,18 @@ function NewJobForm() {
   const customerDuplicate =
     customerError instanceof ApiClientError && customerError.code === "DUPLICATE";
 
-  const openNewCustomer = () => {
+  /**
+   * `seed` is whatever was typed into the search that found nobody — digits
+   * are a phone number, anything else is a name. Re-typing it to add the
+   * person is the kind of small tax that makes people skip the search.
+   */
+  const openNewCustomer = (seed?: string) => {
     setCustomerError(null);
+    const text = seed?.trim();
+    if (text) {
+      if (/^[\d\s+()-]+$/.test(text)) setCustomerPhone(text);
+      else setCustomerName(text);
+    }
     setShowNewCustomer(true);
   };
 
@@ -217,7 +249,7 @@ function NewJobForm() {
           icon={<User size={18} />}
           action={
             !showNewCustomer && !lockedCustomer ? (
-              <Button type="button" size="sm" variant="ghost" onClick={openNewCustomer}>
+              <Button type="button" size="sm" variant="ghost" onClick={() => openNewCustomer()}>
                 <UserPlus size={14} /> New customer
               </Button>
             ) : undefined
@@ -311,20 +343,61 @@ function NewJobForm() {
               <Button type="button" variant="outline" size="sm" onClick={() => refetchCustomers()}>
                 Try again
               </Button>
-              <Button type="button" size="sm" variant="ghost" onClick={openNewCustomer}>
+              <Button type="button" size="sm" variant="ghost" onClick={() => openNewCustomer()}>
                 <UserPlus size={14} /> New customer
               </Button>
             </div>
           </div>
         ) : (
-          <AnimatedDropdown
-            options={(customers ?? []).map((c) => ({
-              id: c.id,
-              name: `${c.name} (${c.phone})`,
-            }))}
+          /* The registry is looked up by typing, not scrolled: the matches
+             drop down under the box and that panel scrolls, so the form
+             underneath keeps its place instead of being pushed down the page
+             by a list of results. */
+          <SearchSelect
+            query={customerQ}
+            onQueryChange={(text) => setCustomerQ(text)}
+            options={(customers ?? []).map((c: any) => {
+              const owed = Number(c.outstanding ?? 0);
+              const visits = Number(c.totalJobs ?? 0);
+              return {
+                id: c.id,
+                label: c.name,
+                sublabel: `${c.phone}${visits > 0 ? ` · ${visits} ${visits === 1 ? "job" : "jobs"}` : ""}`,
+                icon: <User size={15} />,
+                meta:
+                  owed > 0 ? (
+                    <>
+                      <span className="tile-label block text-[var(--ink-label)]">Due</span>
+                      <span className="numeral text-sm text-[var(--terracotta)]">
+                        {currency(owed)}
+                      </span>
+                    </>
+                  ) : undefined,
+                raw: c,
+              };
+            })}
             value={customerId}
-            onChange={selectCustomer}
-            placeholder="Select customer..."
+            onSelect={(option) => selectCustomer(option.id, (option as any).raw)}
+            placeholder="Search by name or phone"
+            aria-label="Search customers"
+            loading={customersPending}
+            busy={customersFetching}
+            empty={
+              <div className="space-y-2.5 text-center">
+                <p className="text-sm font-extrabold text-[var(--ink)]">
+                  {customerSearch ? `Nobody matches “${customerSearch}”` : "No customers yet"}
+                </p>
+                <p className="text-xs font-semibold text-[var(--ink-muted)]">
+                  {customerSearch
+                    ? "Check the spelling or the number — or add them to the registry now."
+                    : "Add the first customer to open a job card for them."}
+                </p>
+                <Button type="button" size="sm" onClick={() => openNewCustomer(customerSearch)}>
+                  <UserPlus size={14} />
+                  {customerSearch ? `Add “${customerSearch}”` : "New customer"}
+                </Button>
+              </div>
+            }
           />
         )}
       </section>
@@ -441,10 +514,7 @@ function NewJobForm() {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => {
-                setLockedCustomer(false);
-                selectCustomer("");
-              }}
+              onClick={() => selectCustomer("")}
             >
               Choose another customer
             </Button>

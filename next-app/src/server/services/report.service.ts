@@ -150,6 +150,7 @@ export async function getDashboard() {
     warehouse,
     activeJobRows,
     recentInvoices,
+    [stockPurchased],
   ] = await Promise.all([
     db
       .select({ total: sql<string>`coalesce(sum(${invoices.total}), 0)` })
@@ -216,13 +217,25 @@ export async function getDashboard() {
       .innerJoin(customersTable, eq(invoices.customerId, customersTable.id))
       .orderBy(desc(invoices.createdAt))
       .limit(5),
+    // What the shelves cost to fill: every unit that has ever been booked in,
+    // valued at the part's purchase price. The price is the current one, not a
+    // per-receipt snapshot — stock_movements carries no cost column — so this
+    // is "what this stock costs to buy today", which is the figure a workshop
+    // owner actually re-orders against.
+    db
+      .select({
+        total: sql<string>`coalesce(sum(${stockMovements.quantity} * ${parts.purchasePrice}), 0)`,
+      })
+      .from(stockMovements)
+      .innerJoin(parts, eq(parts.id, stockMovements.partId))
+      .where(eq(stockMovements.movementType, "STOCK_IN")),
   ]);
 
   const shopId = shop[0]?.id;
   const warehouseId = warehouse[0]?.id;
 
-  // Wave 2 — the two queries that genuinely need the location ids above.
-  const [lowStock, warehouseBalances] = await Promise.all([
+  // Wave 2 — the queries that genuinely need the location ids above.
+  const [lowStock, warehouseBalances, stockByLocation] = await Promise.all([
     db
       .select({
         id: parts.id,
@@ -255,6 +268,25 @@ export async function getDashboard() {
       })
       .from(inventoryBalances)
       .where(eq(inventoryBalances.locationId, warehouseId ?? "")),
+    // Units and their purchase value, per location, in one grouped pass —
+    // the alternative was two more round trips for figures that share a row
+    // source. Archived parts are excluded so a retired line does not keep
+    // inflating what the shelves are worth.
+    db
+      .select({
+        locationId: inventoryBalances.locationId,
+        units: sql<number>`coalesce(sum(${inventoryBalances.quantity}), 0)`,
+        value: sql<string>`coalesce(sum(${inventoryBalances.quantity} * ${parts.purchasePrice}), 0)`,
+      })
+      .from(inventoryBalances)
+      .innerJoin(parts, eq(parts.id, inventoryBalances.partId))
+      .where(
+        and(
+          eq(parts.isArchived, false),
+          inArray(inventoryBalances.locationId, [shopId ?? "", warehouseId ?? ""]),
+        ),
+      )
+      .groupBy(inventoryBalances.locationId),
   ]);
 
   const whMap = new Map(warehouseBalances.map((b: any) => [b.partId, b.quantity]));
@@ -265,6 +297,11 @@ export async function getDashboard() {
     warehouseStock: whMap.get(r.id) ?? 0,
   }));
 
+  const stockAt = (locationId: string | undefined) =>
+    stockByLocation.find((r: any) => r.locationId === locationId);
+  const shopRow = stockAt(shopId);
+  const warehouseRow = stockAt(warehouseId);
+
   return {
     summary: {
       todayBilled: Number(todayBilled?.total ?? 0),
@@ -272,6 +309,11 @@ export async function getDashboard() {
       outstanding: Number(outstanding?.total ?? 0),
       activeJobs: Number(activeJobs?.total ?? 0),
       completedToday: Number(completedToday?.total ?? 0),
+      stockPurchased: Number(stockPurchased?.total ?? 0),
+      shopUnits: Number(shopRow?.units ?? 0),
+      shopStockValue: Number(shopRow?.value ?? 0),
+      warehouseUnits: Number(warehouseRow?.units ?? 0),
+      warehouseStockValue: Number(warehouseRow?.value ?? 0),
     },
     lowStock: lowStockRows,
     activeJobs: activeJobRows,

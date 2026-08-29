@@ -3,6 +3,45 @@ export const currency = (n: string | number | null | undefined) => {
   return "₹" + v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
+/**
+ * Rough rendered width of a figure, in em of the `.numeral` face: digits and
+ * the rupee sign are near-monospace at ~0.6em (less the -0.03em tracking),
+ * group separators about half that. Good to a few percent, which is all the
+ * decision below needs.
+ */
+const figureEm = (s: string) =>
+  [...s].reduce((w, c) => w + (c === "," || c === "." ? 0.27 : 0.57), 0);
+
+/**
+ * Money sized to the tile it has to live in. The exact amount wins while it
+ * fits the lines available; past that the figure switches to the Indian short
+ * form — "₹10.92 lakh" — rather than being ellipsed. A rounded number a
+ * mechanic can read across the counter beats an exact one cut off at "₹12,34…",
+ * which tells them nothing about the order of magnitude.
+ *
+ * `emPerLine` is the narrowest case each tile actually renders at: the numeral
+ * clamps to a rem floor on small phones while the tile keeps shrinking, so the
+ * tightest fit is a 320px screen, not the smallest font.
+ */
+export const currencyFit = (
+  n: string | number | null | undefined,
+  { lines = 1, emPerLine = 4.4 }: { lines?: number; emPerLine?: number } = {},
+) => {
+  const full = currency(n);
+  if (figureEm(full) <= lines * emPerLine) return full;
+
+  const v = Number(n ?? 0);
+  const sign = v < 0 ? "-" : "";
+  const abs = Math.abs(v);
+  // The crore threshold sits just under a crore, not on it: ₹99,99,999 rounds
+  // to "100.00 lakh" at two decimals, and a unit that has to count past 99 is
+  // the wrong unit.
+  if (abs >= 9.995e6) return `${sign}₹${(abs / 1e7).toFixed(2)} crore`;
+  if (abs >= 1e5) return `${sign}₹${(abs / 1e5).toFixed(2)} lakh`;
+  // Below a lakh there is no shorter honest form — thousands read fine in full.
+  return full;
+};
+
 export const formatDate = (d: string | Date | null | undefined) => {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
