@@ -16,12 +16,16 @@ import {
   ClipboardList,
   ReceiptText,
   CircleCheckBig,
+  ShoppingCart,
+  Warehouse,
+  Store,
 } from "lucide-react";
 import { api, errorMessage, errorReference } from "@/lib/api";
-import { currency, formatDate, invoiceStatusLabel } from "@/lib/format";
+import { currency, currencyFit, formatDate, invoiceStatusLabel } from "@/lib/format";
 import {
   Badge,
   BentoGrid,
+  breakableFigure,
   EmptyState,
   ErrorState,
   SectionHeader,
@@ -45,6 +49,29 @@ const PERIODS = [
 ] as const;
 
 type PeriodId = (typeof PERIODS)[number]["id"];
+
+/** Plain grouped count — units on a shelf are never fractional. */
+const units = (n: number | null | undefined) => Number(n ?? 0).toLocaleString("en-IN");
+
+/**
+ * Geometry for the two lead tiles — the day's money in and money out. One
+ * string applied to both, so "same height" is a property of the pair rather
+ * than two numbers that happen to agree: change it once and they move
+ * together. The height is deliberate too — these two are read from across the
+ * counter, the six below them are read when you go looking.
+ */
+const HERO_TILE = "min-h-[9.5rem] justify-between gap-3 p-4";
+
+/**
+ * How much figure each tile can hold. The hero pair is tall enough for two
+ * lines of numeral and now uses them — the exact amount is worth a wrap. The
+ * small tiles have one line, so a big figure there falls back to "₹12.35 lakh"
+ * rather than being cut off. Both budgets are the narrowest render: a 320px
+ * phone, where the numeral has hit its rem floor but the tile is still
+ * shrinking.
+ */
+const HERO_FIT = { lines: 2, emPerLine: 4.4 };
+const SMALL_FIT = { lines: 1, emPerLine: 5.2 };
 
 /** Shared shell for every list row on this page: identity left, facts right. */
 const ROW =
@@ -220,56 +247,103 @@ export default function DashboardPage() {
       {/* ── Today, at a squint ───────────────────────────────────────── */}
       {isLoading ? (
         <BentoGrid>
-          <Skeleton className="col-span-2 h-44" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
+          <Skeleton className="h-[9.5rem]" />
+          <Skeleton className="h-[9.5rem]" />
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-[6.25rem]" />
+          ))}
         </BentoGrid>
       ) : (
       <BentoGrid>
-        <Tile tone="forest" className="col-span-2 flex min-h-44 flex-col justify-between gap-6 p-5">
-          <div className="flex items-start justify-between gap-3">
+        {/* Row one is the day's two money questions side by side: what came
+            in, what the shelves cost. They lead the grid — taller than the
+            six behind them and the only two carrying a solid accent fill, so
+            the pair reads first at a squint. Forest for takings, ochre for
+            stock, per the semantic mapping in DESIGN.md; the six below stay
+            small and quiet so this row keeps its weight. */}
+        <Tile tone="forest" className={cn("flex flex-col", HERO_TILE)}>
+          <div className="flex items-start justify-between gap-2">
             <span className="tile-label text-[var(--ink-on-dark-muted)]">Billed today</span>
             <IndianRupee size={18} className="shrink-0 opacity-45" />
           </div>
           <div>
-            <p className="numeral truncate text-[clamp(2.5rem,13vw,4rem)]">
-              {currency(summary?.todayBilled)}
+            <p className="numeral break-words text-[clamp(1.6rem,7vw,2.5rem)]">
+              {breakableFigure(currencyFit(summary?.todayBilled, HERO_FIT))}
             </p>
-            <p className="mt-2 text-xs font-semibold text-[var(--ink-on-dark-muted)]">
-              {summary?.activeJobs ?? 0} on the floor · {summary?.completedToday ?? 0} closed today
+            <p className="mt-1 text-xs font-semibold leading-tight text-[var(--ink-on-dark-muted)]">
+              {summary?.activeJobs ?? 0} open · {summary?.completedToday ?? 0} closed
             </p>
           </div>
         </Tile>
 
         <StatTile
+          tone="ochre"
+          wrap
+          className={HERO_TILE}
+          label="Spent on stock"
+          value={currencyFit(summary?.stockPurchased, HERO_FIT)}
+          footnote="Cost of every unit booked in"
+          icon={<ShoppingCart size={18} />}
+        />
+
+        <StatTile
+          size="sm"
           tone="sage"
           label="Collected"
-          value={currency(summary?.todayCollected)}
+          value={currencyFit(summary?.todayCollected, SMALL_FIT)}
           footnote="Payments taken today"
-          icon={<Wallet size={16} />}
+          icon={<Wallet size={15} />}
         />
         <StatTile
-          tone="terracotta"
-          label="Outstanding credit"
-          value={currency(summary?.outstanding)}
-          footnote="Unpaid across all invoices"
-          icon={<HandCoins size={16} />}
-        />
-        <StatTile
+          size="sm"
           tone="ochre"
           label="Active jobs"
           value={String(summary?.activeJobs ?? 0)}
           footnote="Open on the floor"
-          icon={<Wrench size={16} />}
+          icon={<Wrench size={15} />}
+        />
+
+        {/* What is standing on the shelves at each location, in the same
+            neutral fill as the money that bought it. */}
+        <StatTile
+          size="sm"
+          tone="bright"
+          label="Warehouse stock"
+          value={units(summary?.warehouseUnits)}
+          unit="units"
+          footnote={`${currency(summary?.warehouseStockValue)} at cost`}
+          icon={<Warehouse size={15} />}
         />
         <StatTile
+          size="sm"
+          tone="bright"
+          label="Shop stock"
+          value={units(summary?.shopUnits)}
+          unit="units"
+          footnote={`${currency(summary?.shopStockValue)} at cost`}
+          icon={<Store size={15} />}
+        />
+
+        {/* Closing pair. Neither is a live figure you act on mid-shift —
+            outstanding credit is a running balance that only moves when a
+            customer pays, and completed today is the tally you read at the
+            end of the day — so they sit last, after the work in front of you
+            and the stock behind it. */}
+        <StatTile
+          size="sm"
+          tone="terracotta"
+          label="Outstanding credit"
+          value={currencyFit(summary?.outstanding, SMALL_FIT)}
+          footnote="Unpaid across all invoices"
+          icon={<HandCoins size={15} />}
+        />
+        <StatTile
+          size="sm"
           tone="forest"
           label="Completed today"
           value={String(summary?.completedToday ?? 0)}
           footnote="Finished and invoiced"
-          icon={<CircleCheckBig size={16} />}
+          icon={<CircleCheckBig size={15} />}
         />
       </BentoGrid>
       )}

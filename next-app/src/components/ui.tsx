@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useEffect, useState } from "react";
+import { Fragment, forwardRef, useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/cn";
@@ -169,8 +169,34 @@ export const Tile = ({
 );
 
 /**
+ * A money string is one unbreakable token to the browser — "₹12,34,567.00"
+ * has no space to wrap at — so a figure wider than its tile either overflows
+ * or gets ellipsed. Marking each group separator as a break opportunity lets
+ * a wrapping figure break at "12,34," instead of mid-group.
+ */
+export const breakableFigure = (value: React.ReactNode): React.ReactNode => {
+  if (typeof value !== "string") return value;
+  const chunks = value.split(/(?<=,)/);
+  return chunks.map((chunk, i) => (
+    <Fragment key={i}>
+      {chunk}
+      {i < chunks.length - 1 && <wbr />}
+    </Fragment>
+  ));
+};
+
+/**
  * Tiny caps label over a large numeral — the figure is the hero, the label
  * is a whisper. `value` stays on one line; long values shrink rather than wrap.
+ *
+ * `size="sm"` is the same tile with every dimension pulled in — smaller
+ * numeral, tighter padding, quieter footnote. It exists for grids that carry
+ * enough tiles that the default numeral would push the last row off the fold;
+ * the dashboard uses it so eight figures fit where five used to.
+ *
+ * `wrap` lets the figure use more than one line — for tall tiles where the
+ * room is already there and truncating a number would be the worse trade.
+ * Pair it with `currencyFit` so the value handed in is one that fits.
  */
 export const StatTile = ({
   label,
@@ -179,6 +205,8 @@ export const StatTile = ({
   footnote,
   icon,
   tone = "cream",
+  size = "md",
+  wrap = false,
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & {
@@ -188,23 +216,54 @@ export const StatTile = ({
   footnote?: React.ReactNode;
   icon?: React.ReactNode;
   tone?: Tone;
-}) => (
-  <Tile tone={tone} className={cn("flex flex-col justify-between gap-3", className)} {...props}>
-    <div className="flex items-start justify-between gap-2">
-      <span className={cn("tile-label", TONE_LABEL[tone])}>{label}</span>
-      {icon && <span className={cn("shrink-0 opacity-45", TONE_INK[tone])}>{icon}</span>}
-    </div>
-    <div>
-      <div className="flex items-baseline gap-1.5">
-        <span className="numeral truncate text-[clamp(1.75rem,7vw,2.5rem)]">{value}</span>
-        {unit && <span className={cn("text-[11px] font-bold", TONE_LABEL[tone])}>{unit}</span>}
+  size?: "md" | "sm";
+  wrap?: boolean;
+}) => {
+  const sm = size === "sm";
+  return (
+    <Tile
+      tone={tone}
+      className={cn("flex flex-col justify-between", sm ? "gap-2 p-3" : "gap-3", className)}
+      {...props}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className={cn("tile-label", sm && "text-[9px] tracking-[0.1em]", TONE_LABEL[tone])}>
+          {label}
+        </span>
+        {icon && <span className={cn("shrink-0 opacity-45", TONE_INK[tone])}>{icon}</span>}
       </div>
-      {footnote && (
-        <p className={cn("mt-1 text-xs font-semibold leading-tight", TONE_LABEL[tone])}>{footnote}</p>
-      )}
-    </div>
-  </Tile>
-);
+      <div>
+        <div className="flex items-baseline gap-1.5">
+          <span
+            className={cn(
+              "numeral",
+              wrap ? "min-w-0 break-words" : "truncate",
+              sm ? "text-[clamp(1.25rem,5vw,1.75rem)]" : "text-[clamp(1.75rem,7vw,2.5rem)]",
+            )}
+          >
+            {wrap ? breakableFigure(value) : value}
+          </span>
+          {unit && (
+            <span className={cn(sm ? "text-[10px]" : "text-[11px]", "font-bold", TONE_LABEL[tone])}>
+              {unit}
+            </span>
+          )}
+        </div>
+        {footnote && (
+          <p
+            className={cn(
+              "font-semibold leading-tight",
+              sm ? "mt-0.5 text-[11px]" : "mt-1 text-xs",
+              TONE_LABEL[tone],
+            )}
+          >
+            {footnote}
+          </p>
+        )}
+      </div>
+    </Tile>
+  );
+};
 
 /** Small fact tile: icon, caps label, bold value. Used in detail-page grids. */
 export const SpecTile = ({
