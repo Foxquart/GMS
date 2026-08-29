@@ -146,7 +146,7 @@ export function AppNav() {
   const initial = user?.email ? user.email[0].toUpperCase() : "G";
 
   const navBody = (onNavigate?: () => void) => (
-    <nav aria-label="Main" className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
+    <nav aria-label="Main" className="no-scrollbar flex-1 space-y-5 overflow-y-auto px-3 py-4">
       {NAV_GROUPS.map((group, gi) => (
         <div key={group.label ?? `group-${gi}`} className="space-y-0.5">
           {group.label && (

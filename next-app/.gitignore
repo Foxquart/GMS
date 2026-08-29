@@ -42,3 +42,7 @@ next-env.d.ts
 
 # local dev database (PGlite embedded data dir)
 /.pglite/
+
+# PGlite local database and its single-process ownership lock
+.pglite
+.pglite.lock

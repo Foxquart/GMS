@@ -456,12 +456,13 @@ export const Badge = ({
 }) => (
   <span
     className={cn(
-      // A badge is always one line. `flex-nowrap` is explicit because callers
-      // pass an icon plus a label as sibling children, and without it a narrow
-      // column stacks the icon above the word and the pill balloons.
-      "inline-flex max-w-full shrink-0 flex-nowrap items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1",
+      // Children are direct flex items on purpose. They used to be wrapped in
+      // one inner `truncate` span, and Tailwind's preflight sets
+      // `svg { display: block }` — so an icon child became a block inside that
+      // span and shoved the label onto a second line, ballooning the pill.
+      // As flex items the icon and label sit on one row regardless.
+      "inline-flex max-w-full shrink-0 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full px-2.5 py-1",
       "text-[11px] font-bold leading-none tracking-wide",
-      // Any icon passed as a child keeps its size instead of being squeezed.
       "[&>svg]:shrink-0",
       color === "slate" && "bg-[var(--surface-sunk)] text-[var(--ink-muted)]",
       color === "blue" && "bg-[var(--sage)] text-[var(--forest)]",
@@ -484,7 +485,7 @@ export const Badge = ({
         )}
       />
     )}
-    <span className="truncate">{children}</span>
+    {children}
   </span>
 );
 

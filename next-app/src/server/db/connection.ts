@@ -32,38 +32,65 @@ function isProcessAlive(pid: number): boolean {
 }
 
 /**
- * `postmaster.pid` is Postgres's exclusive-access lock, and it is the only
- * thing standing between two processes and a corrupted data directory.
+ * Takes exclusive ownership of a PGlite data directory for this process.
  *
- * This used to be deleted unconditionally on every startup. That let a second
- * server, a seed script or a test run open the directory while the first
- * still held it, each believing it had exclusive access — which is what
- * produced the repeated `RuntimeError: Aborted()` corruption. The lock is now
- * only cleared when the process that wrote it is genuinely gone.
+ * PGlite is a single-process WebAssembly Postgres: two processes opening the
+ * same directory corrupt it, which shows up later as
+ * `RuntimeError: Aborted()` on every query. Postgres would normally prevent
+ * this with `postmaster.pid`, but PGlite writes a placeholder pid of `-42`
+ * there — it has no real OS process — so that file can never identify a live
+ * holder. This keeps its own lock, named with the actual Node pid.
+ *
+ * A hard kill leaves the lock behind; that is fine, because ownership is
+ * decided by whether the recorded pid is still alive, not by the file's mere
+ * existence.
  */
-function clearStaleLock(dataDir: string) {
-  const lockFile = path.join(dataDir, "postmaster.pid");
-  if (!fs.existsSync(lockFile)) return;
+function acquireDataDirLock(dataDir: string) {
+  const lockFile = `${dataDir}.lock`;
 
-  let pid = NaN;
-  try {
-    pid = Number.parseInt(fs.readFileSync(lockFile, "utf8").split("\n")[0]?.trim() ?? "", 10);
-  } catch {
-    // Unreadable lock file — fall through and treat it as stale.
+  if (fs.existsSync(lockFile)) {
+    let pid = NaN;
+    try {
+      pid = Number.parseInt(fs.readFileSync(lockFile, "utf8").trim(), 10);
+    } catch {
+      // Unreadable lock — treat as stale rather than wedging the app forever.
+    }
+    if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && isProcessAlive(pid)) {
+      throw new Error(
+        `Database directory ${dataDir} is already open by process ${pid}. ` +
+          "PGlite allows one process at a time — stop that server, seed or test run first. " +
+          "Opening it twice is what corrupts the directory.",
+      );
+    }
   }
 
-  if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && isProcessAlive(pid)) {
-    throw new Error(
-      `Database directory ${dataDir} is already open by process ${pid}. ` +
-        "PGlite is single-process: stop that server (or seed/test run) first. " +
-        "Opening the directory twice is what corrupts it.",
-    );
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(lockFile, String(process.pid));
+
+  const release = () => {
+    try {
+      // Only drop the lock if it is still ours; a later owner's must survive.
+      if (fs.readFileSync(lockFile, "utf8").trim() === String(process.pid)) {
+        fs.unlinkSync(lockFile);
+      }
+    } catch {
+      // Nothing useful to do while exiting.
+    }
+  };
+  process.once("exit", release);
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    process.once(signal, () => {
+      release();
+      process.exit(signal === "SIGINT" ? 130 : 143);
+    });
   }
 
+  // Now that we own the directory, a leftover postmaster.pid can only be from
+  // an unclean shutdown, so clearing it is safe.
   try {
-    fs.unlinkSync(lockFile);
+    fs.unlinkSync(path.join(dataDir, "postmaster.pid"));
   } catch {
-    // ignore
+    // Absent is the normal case.
   }
 }
 
@@ -76,7 +103,7 @@ function createDb() {
     const dataDir = process.env.PGLITE_DATA_DIR
       ? path.resolve(/* turbopackIgnore: true */ process.env.PGLITE_DATA_DIR)
       : path.join(process.cwd(), ".pglite");
-    clearStaleLock(dataDir);
+    acquireDataDirLock(dataDir);
     const client = new PGlite(dataDir);
     return drizzlePglite(client, { schema });
   }
@@ -97,9 +124,25 @@ function createDb() {
   return drizzlePg(pool, { schema });
 }
 
-export const db =
-  globalForDb.db ??
-  (globalForDb.db = createDb());
+function getDb(): any {
+  if (!globalForDb.db) globalForDb.db = createDb();
+  return globalForDb.db;
+}
+
+/**
+ * Lazy on purpose. This used to call `createDb()` at module scope, so merely
+ * importing the module opened the data directory — including during
+ * `next build`, which imports every route to collect its config. A build is
+ * not a database client, and with the directory lock in place that import
+ * would fail outright while a server was running.
+ */
+export const db: any = new Proxy({} as any, {
+  get(_target, prop) {
+    const real = getDb();
+    const value = real[prop];
+    return typeof value === "function" ? value.bind(real) : value;
+  },
+});
 
 // ─── Warm-up ─────────────────────────────────────────────────────────
 /**

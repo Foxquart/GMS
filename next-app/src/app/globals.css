@@ -127,6 +127,23 @@ body {
   background: var(--ink-label);
 }
 
+/**
+ * Hides a scrollbar without disabling the scroll.
+ *
+ * Only for short, fully-navigable regions like the sidebar, where the bar is
+ * visual noise. Do not put this on long content: the bar is the only cue that
+ * there is more to see, and removing it there hides information.
+ */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge */
+}
+.no-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none; /* Chrome, Safari */
+}
+
 /* Focus is always visible and always styled — never an outline reset. */
 :focus-visible {
   outline: 2px solid var(--forest);
