@@ -70,6 +70,38 @@ const NAV_GROUPS: NavGroup[] = [
 
 const ALL_HREFS = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.href));
 
+
+/**
+ * Maker credit. The whole line is one link so the target is a comfortable tap
+ * rather than a five-character word, and it opens in a new tab so nobody loses
+ * the workshop mid-job. `rel="noreferrer"` because this is a cross-origin
+ * `target="_blank"`.
+ */
+function BuiltByFoxquart({ className }: { className?: string }) {
+  return (
+    <a
+      href="https://foxquart.com"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Built by Foxquart — opens foxquart.com in a new tab"
+      className={cn(
+        "flex items-center justify-center gap-1.5 rounded-full px-3 py-2 text-[11px] font-semibold",
+        "text-[var(--ink-label)] transition-colors duration-150 ease-out",
+        "hover:bg-[var(--surface-sunk)] hover:text-[var(--ink-muted)]",
+        className,
+      )}
+    >
+      <span>Built by</span>
+      {/* Decorative: the word beside it already names the maker.
+          A 14px static SVG in the sidebar footer is never the LCP element, so
+          next/image would add a loader and layout machinery for nothing. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/icon.svg" alt="" aria-hidden="true" className="h-3.5 w-3.5 rounded-[3px]" />
+      <span className="font-extrabold text-[var(--ink-muted)]">Foxquart</span>
+    </a>
+  );
+}
+
 export function AppNav() {
   const pathname = usePathname() || "";
   const router = useRouter();
@@ -256,6 +288,10 @@ export function AppNav() {
             <LogOut size={16} />
           </button>
         </div>
+
+        <div className="shrink-0 border-t border-[var(--hairline)] px-3 py-2">
+          <BuiltByFoxquart />
+        </div>
       </aside>
 
       {/* ── Mobile top bar ──────────────────────────────────────────── */}
@@ -351,6 +387,7 @@ export function AppNav() {
                   <LogOut size={18} />
                   <span>Sign out</span>
                 </button>
+                <BuiltByFoxquart className="mt-1" />
               </div>
             </motion.div>
           </div>

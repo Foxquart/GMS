@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { aliasedTable, and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/server/db/connection";
 import {
   categories,
@@ -486,6 +486,16 @@ export async function getLowStock() {
   const shop = await getLocationByCode("SHOP");
   const warehouse = await getLocationByCode("WAREHOUSE");
 
+  // A part counts as low when EITHER location is under its own minimum.
+  //
+  // This used to join the shop only and compare against minimumShopStock, so a
+  // part with a healthy shop float and a depleted warehouse was reported
+  // "Running low" on its own page — which checks both — yet never appeared in
+  // this list or its badge. minimumWarehouseStock exists precisely to warn
+  // about the back room; ignoring it made the setting do nothing.
+  const shopBal = aliasedTable(inventoryBalances, "shop_bal");
+  const whBal = aliasedTable(inventoryBalances, "wh_bal");
+
   const rows = await db
     .select({
       partId: parts.id,
@@ -496,37 +506,35 @@ export async function getLowStock() {
       minimumShopStock: parts.minimumShopStock,
       minimumWarehouseStock: parts.minimumWarehouseStock,
       sellingPrice: parts.sellingPrice,
-      shopStock: sql<number>`coalesce(${inventoryBalances.quantity}, 0)`,
+      shopStock: sql<number>`coalesce(${shopBal.quantity}, 0)`,
+      warehouseStock: sql<number>`coalesce(${whBal.quantity}, 0)`,
     })
     .from(parts)
-    .leftJoin(
-      inventoryBalances,
-      and(
-        eq(inventoryBalances.partId, parts.id),
-        eq(inventoryBalances.locationId, shop.id),
-      ),
-    )
+    .leftJoin(shopBal, and(eq(shopBal.partId, parts.id), eq(shopBal.locationId, shop.id)))
+    .leftJoin(whBal, and(eq(whBal.partId, parts.id), eq(whBal.locationId, warehouse.id)))
     .where(
       and(
         eq(parts.isArchived, false),
-        sql`coalesce(${inventoryBalances.quantity}, 0) < ${parts.minimumShopStock}`,
+        sql`(
+          coalesce(${shopBal.quantity}, 0) < ${parts.minimumShopStock}
+          or coalesce(${whBal.quantity}, 0) < ${parts.minimumWarehouseStock}
+        )`,
       ),
     )
-    .orderBy(sql`coalesce(${inventoryBalances.quantity}, 0)`);
+    // Emptiest shop floor first — that is what stops a job today.
+    .orderBy(sql`coalesce(${shopBal.quantity}, 0)`);
 
-  const warehouseBalances = await db
-    .select({
-      partId: inventoryBalances.partId,
-      quantity: inventoryBalances.quantity,
-    })
-    .from(inventoryBalances)
-    .where(eq(inventoryBalances.locationId, warehouse.id));
-
-  const whMap = new Map(warehouseBalances.map((b: any) => [b.partId, b.quantity]));
-
-  return rows.map((r: any) => ({
-    ...r,
-    shopStock: Number(r.shopStock),
-    warehouseStock: whMap.get(r.partId) ?? 0,
-  }));
+  return rows.map((r: any) => {
+    const shopStock = Number(r.shopStock);
+    const warehouseStock = Number(r.warehouseStock);
+    return {
+      ...r,
+      shopStock,
+      warehouseStock,
+      // Which location is actually short, so the UI can say why a part is here
+      // instead of leaving the reader to compare four numbers themselves.
+      shopShort: shopStock < r.minimumShopStock,
+      warehouseShort: warehouseStock < r.minimumWarehouseStock,
+    };
+  });
 }

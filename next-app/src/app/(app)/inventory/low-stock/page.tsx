@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeftRight, Package, Store, Warehouse } from "lucide-react";
 import { api, errorMessage, errorReference } from "@/lib/api";
 import {
+  Badge,
   BentoGrid,
   Button,
   CircleButton,
@@ -32,6 +33,8 @@ type LowStockRow = {
   sellingPrice: string;
   shopStock: number;
   warehouseStock: number;
+  shopShort: boolean;
+  warehouseShort: boolean;
 };
 
 export default function LowStockPage() {
@@ -45,6 +48,7 @@ export default function LowStockPage() {
   const rows = data ?? [];
   const out = rows.filter((r) => r.shopStock <= 0);
   const low = rows.filter((r) => r.shopStock > 0);
+  const warehouseOnly = rows.filter((r) => !r.shopShort && r.warehouseShort);
   // Worth flagging: it is short on the floor but there is stock out back.
   const coverable = rows.filter((r) => r.shopStock < r.minimumShopStock && r.warehouseStock > 0);
 
@@ -68,7 +72,7 @@ export default function LowStockPage() {
       </StickyControls>
 
       <p className="text-sm font-semibold text-[var(--ink-muted)]">
-        Parts at or below their shop minimum.
+        Parts below their minimum on the shop floor or in the warehouse.
       </p>
 
       {isPending ? (
@@ -86,9 +90,13 @@ export default function LowStockPage() {
             icon={<Package size={16} />}
           />
           <StatTile
-            label="Running low"
+            label="Below minimum"
             value={String(low.length)}
-            footnote="Below the minimum"
+            footnote={
+              warehouseOnly.length
+                ? `${warehouseOnly.length} in the warehouse only`
+                : "Shop floor or warehouse"
+            }
             tone={low.length ? "ochre" : "cream"}
             icon={<AlertTriangle size={16} />}
           />
@@ -178,28 +186,40 @@ export default function LowStockPage() {
                         {r.partNumber ? `#${r.partNumber}` : "No part number"}
                         {r.brand ? ` · ${r.brand}` : ""}
                       </p>
-                      <p className="mt-1 text-xs font-bold">
-                        <span className={isOut ? "text-[var(--terracotta)]" : "text-[#8a6a10]"}>
-                          {/* Never colour alone — the words carry it too. */}
-                          {isOut ? "Out of stock" : `${r.shopStock} left`}
-                        </span>
-                        <span className="text-[var(--ink-muted)]">
-                          {" "}· minimum {r.minimumShopStock}
-                        </span>
-                      </p>
+                      {/* Where the shortfall is, as badges rather than a
+                          sentence — with 170 parts listed you scan this column
+                          rather than read it. Each badge names its location and
+                          shows the count against its minimum, so colour is
+                          never carrying the meaning on its own. */}
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                        {isOut ? (
+                          <Badge color="red">
+                            <Store size={10} />
+                            Shop empty
+                          </Badge>
+                        ) : (
+                          r.shopShort && (
+                            <Badge color="amber">
+                              <Store size={10} />
+                              Shop {r.shopStock}/{r.minimumShopStock}
+                            </Badge>
+                          )
+                        )}
+                        {r.warehouseShort && (
+                          <Badge color="amber">
+                            <Warehouse size={10} />
+                            Warehouse {r.warehouseStock}/{r.minimumWarehouseStock}
+                          </Badge>
+                        )}
+                      </div>
                     </div>
 
                     <div className="shrink-0 space-y-1 text-right">
                       <p className="tabular text-sm font-extrabold text-[var(--ink)]">
                         {currency(r.sellingPrice)}
                       </p>
-                      <p className="flex items-center justify-end gap-2 text-[11px] font-bold text-[var(--ink-muted)]">
-                        <span className="inline-flex items-center gap-1">
-                          <Store size={11} /> {r.shopStock}
-                        </span>
-                        <span className="inline-flex items-center gap-1">
-                          <Warehouse size={11} /> {r.warehouseStock}
-                        </span>
+                      <p className="text-[11px] font-semibold text-[var(--ink-muted)]">
+                        {r.unit}
                       </p>
                     </div>
                   </div>

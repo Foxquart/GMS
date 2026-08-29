@@ -30,7 +30,9 @@ export const metadata: Metadata = {
     startupImage: [{ url: "/icon-512x512.png" }],
   },
   icons: {
-    apple: [{ url: "/icon-192x192.png", sizes: "192x192", type: "image/png" }],
+    // 180x180 is the size iOS actually asks for; pointing this at the 192
+    // Android icon made the device rescale it on every home-screen add.
+    apple: [{ url: "/apple-icon.png", sizes: "180x180", type: "image/png" }],
   },
   applicationName: "Garage Manager",
 };
