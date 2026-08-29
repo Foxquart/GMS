@@ -174,7 +174,7 @@ export default function LowStockPage() {
                         "flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--r-tile)]",
                         isOut
                           ? "bg-[var(--terracotta)]/12 text-[var(--terracotta)]"
-                          : "bg-[var(--ochre)]/20 text-[#8a6a10]",
+                          : "bg-[var(--ochre)]/20 text-[var(--ochre-ink)]",
                       )}
                     >
                       <Package size={18} />

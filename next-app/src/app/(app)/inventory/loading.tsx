@@ -1,9 +1,10 @@
 import { Skeleton, StickyControls } from "@/components/ui";
 
 /**
- * Shell of the inventory hub. The title row scrolls; the location/status
- * filters and the search are drawn with the same `StickyControls` the page
- * uses, so the list below starts at the same offset once the data lands.
+ * Shell of the inventory hub. The title row and the category panel scroll;
+ * the location/status filters and the search are drawn with the same
+ * `StickyControls` the page uses, so the list below starts at the same offset
+ * once the data lands.
  */
 export default function InventoryLoading() {
   return (
@@ -18,6 +19,9 @@ export default function InventoryLoading() {
           <Skeleton className="h-11 w-11 rounded-full" />
         </div>
       </div>
+
+      {/* The category panel, open by default, ahead of the parts controls. */}
+      <Skeleton className="h-64 rounded-[var(--r-panel)]" />
 
       <StickyControls className="space-y-2.5">
         {/* Location pill on the left, status filter taking the rest.

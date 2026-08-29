@@ -8,6 +8,7 @@ import {
   stockMovements,
   stockTransferItems,
   stockTransfers,
+  subCategories,
   suppliers,
   type movementTypeEnum,
 } from "@/server/db/schema";
@@ -168,6 +169,7 @@ export async function updateSupplier(
 export async function listParts(opts: {
   q?: string;
   categoryId?: string;
+  subCategoryId?: string;
   includeArchived?: boolean;
   limit?: number;
 }) {
@@ -177,6 +179,9 @@ export async function listParts(opts: {
   }
   if (opts.categoryId) {
     conditions.push(eq(parts.categoryId, opts.categoryId));
+  }
+  if (opts.subCategoryId) {
+    conditions.push(eq(parts.subCategoryId, opts.subCategoryId));
   }
   if (opts.q) {
     const like = `%${opts.q.toLowerCase()}%`;
@@ -193,6 +198,8 @@ export async function listParts(opts: {
       brand: parts.brand,
       categoryId: parts.categoryId,
       categoryName: categories.name,
+      subCategoryId: parts.subCategoryId,
+      subCategoryName: subCategories.name,
       sellingPrice: parts.sellingPrice,
       purchasePrice: parts.purchasePrice,
       minimumShopStock: parts.minimumShopStock,
@@ -208,6 +215,7 @@ export async function listParts(opts: {
     })
     .from(parts)
     .leftJoin(categories, eq(parts.categoryId, categories.id))
+    .leftJoin(subCategories, eq(parts.subCategoryId, subCategories.id))
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(parts.name)
     .limit(opts.limit ?? 500);
@@ -227,6 +235,8 @@ export async function getPart(id: string) {
 export async function createPart(input: {
   name: string;
   categoryId?: string;
+  /** Only meaningful with `categoryId`; the route validates the pair. */
+  subCategoryId?: string;
   supplierId?: string;
   partNumber?: string;
   brand?: string;

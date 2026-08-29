@@ -42,7 +42,9 @@ import {
   type Tone,
 } from "@/components/ui";
 import { SpotTools } from "@/components/illustrations";
+import { AnimatedDropdown } from "@/components/animated-dropdown";
 import { currency, formatDateTime } from "@/lib/format";
+import { REFERENCE_QUERY } from "@/lib/query-keys";
 import { cn } from "@/lib/cn";
 
 const movementLabel = (m: string) =>
@@ -79,6 +81,8 @@ export default function PartDetailPage() {
   const [eMinShop, setEMinShop] = useState("0");
   const [eMinWarehouse, setEMinWarehouse] = useState("0");
   const [eDescription, setEDescription] = useState("");
+  const [eCategoryId, setECategoryId] = useState("");
+  const [eSubCategoryId, setESubCategoryId] = useState("");
   const [eAttributes, setEAttributes] = useState<{ label: string; value: string }[]>([]);
 
   const [stockInOpen, setStockInOpen] = useState(false);
@@ -111,6 +115,28 @@ export default function PartDetailPage() {
   const { data: categories } = useQuery({
     queryKey: ["categories"],
     queryFn: () => api<any[]>("/api/categories"),
+    ...REFERENCE_QUERY,
+  });
+
+  /**
+   * Keyed on the category chosen *in the sheet*, not the part's saved one, so
+   * switching category in the form immediately re-lists what can be picked
+   * under it.
+   */
+  const { data: editSubCategories, isFetching: editSubCategoriesLoading } = useQuery({
+    queryKey: ["subcategories", eCategoryId],
+    queryFn: () => api<any[]>("/api/subcategories", { params: { categoryId: eCategoryId } }),
+    enabled: Boolean(eCategoryId),
+    ...REFERENCE_QUERY,
+  });
+
+  // Read-only display of the part's own sub-category, which may sit under a
+  // category the sheet is not currently showing.
+  const { data: partSubCategory } = useQuery({
+    queryKey: ["subcategory", data?.subCategoryId],
+    queryFn: () => api<any>(`/api/subcategories/${data.subCategoryId}`),
+    enabled: Boolean(data?.subCategoryId),
+    ...REFERENCE_QUERY,
   });
 
   const {
@@ -233,6 +259,8 @@ export default function PartDetailPage() {
           minimumShopStock: Number(eMinShop || 0),
           minimumWarehouseStock: Number(eMinWarehouse || 0),
           description: eDescription || null,
+          categoryId: eCategoryId || null,
+          subCategoryId: eSubCategoryId || null,
           attributes: eAttributes.filter((a) => a.label.trim() || a.value.trim()),
         }),
       }),
@@ -243,6 +271,9 @@ export default function PartDetailPage() {
       qc.invalidateQueries({ queryKey: ["part", id] });
       qc.invalidateQueries({ queryKey: ["parts"] });
       qc.invalidateQueries({ queryKey: ["inventory"] });
+      // Category and sub-category tallies move with the part.
+      qc.invalidateQueries({ queryKey: ["categories"] });
+      qc.invalidateQueries({ queryKey: ["subcategories"] });
     },
     onError: (err) => setEditError(asSurfaceError(err)),
   });
@@ -260,6 +291,8 @@ export default function PartDetailPage() {
     setEMinShop(String(part?.minimumShopStock ?? 0));
     setEMinWarehouse(String(part?.minimumWarehouseStock ?? 0));
     setEDescription(part?.description ?? "");
+    setECategoryId(part?.categoryId ?? "");
+    setESubCategoryId(part?.subCategoryId ?? "");
     setEAttributes(part?.attributes ?? []);
     setEditError(null);
     setEditOpen(true);
@@ -351,6 +384,7 @@ export default function PartDetailPage() {
 
   const categoryName =
     (categories ?? []).find((c: any) => c.id === part.categoryId)?.name ?? "Uncategorised";
+  const subCategoryName = part.subCategoryId ? (partSubCategory?.name ?? "…") : "—";
   const supplierName =
     (suppliers ?? []).find((s: any) => s.id === part.supplierId)?.name ?? "No supplier";
 
@@ -461,6 +495,7 @@ export default function PartDetailPage() {
           <SpecTile label="Part number" value={part.partNumber || "—"} />
           <SpecTile label="Brand" value={part.brand || "—"} />
           <SpecTile label="Category" value={categoryName} />
+          <SpecTile label="Sub-category" value={subCategoryName} />
           <SpecTile label="Supplier" value={supplierName} />
           <SpecTile label="Unit" value={unit} />
           <SpecTile
@@ -776,6 +811,53 @@ export default function PartDetailPage() {
               <Input value={eUnit} onChange={(e) => setEUnit(e.target.value)} />
             </Field>
           </div>
+          <Field label="Category">
+            <AnimatedDropdown
+              options={categories ?? []}
+              value={eCategoryId}
+              onChange={(v: string) => {
+                // The server rejects a sub-category that is not filed under the
+                // chosen category, so moving category drops it here first.
+                setECategoryId(v);
+                setESubCategoryId("");
+                setEditError(null);
+              }}
+              showClearOption
+              clearLabel="Uncategorised"
+              placeholder="Pick a category"
+            />
+          </Field>
+
+          <Field
+            label="Sub-category"
+            hint={
+              !eCategoryId
+                ? "Pick a category first — sub-categories are listed inside one."
+                : undefined
+            }
+          >
+            <AnimatedDropdown
+              options={editSubCategories ?? []}
+              value={eSubCategoryId}
+              onChange={(v: string) => {
+                setESubCategoryId(v);
+                setEditError(null);
+              }}
+              disabled={!eCategoryId || editSubCategoriesLoading}
+              showClearOption
+              clearLabel="No sub-category"
+              placeholder={
+                !eCategoryId
+                  ? "Pick a category first"
+                  : editSubCategoriesLoading
+                    ? "Loading…"
+                    : editSubCategories?.length
+                      ? "Optional"
+                      : "None in this category yet"
+              }
+            />
+          </Field>
+
           <Field label="Description">
             <Textarea rows={3} value={eDescription} onChange={(e) => setEDescription(e.target.value)} />
           </Field>

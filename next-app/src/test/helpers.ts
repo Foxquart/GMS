@@ -23,6 +23,10 @@ export async function resetBusinessData() {
     "customers",
     "inventory_balances",
     "parts",
+    // After parts (which reference sub-categories), before categories (whose
+    // delete cascades into the link table anyway).
+    "category_sub_categories",
+    "sub_categories",
     "categories",
     "suppliers",
   ]) {

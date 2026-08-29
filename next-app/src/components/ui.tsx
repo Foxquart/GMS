@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, forwardRef, useEffect, useState } from "react";
+import { forwardRef, useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/cn";
@@ -142,13 +142,23 @@ const TONE_INK: Record<Tone, string> = {
   ochre: "text-[var(--forest-deep)]",
 };
 
+/**
+ * The caption tier for each fill.
+ *
+ * On the coloured fills this used to be the body ink at 65–75% opacity, which
+ * measured 3.5–3.6:1 against the fill underneath — below the 4.5:1 that 10px
+ * caps and 11px footnotes need. There is no muted ink to reach for on a solid
+ * accent, so on those tones the caption runs at full strength and the tier is
+ * carried by size and letterspacing instead. Sage is pale enough to keep a
+ * little transparency and still clear the bar at 80%.
+ */
 const TONE_LABEL: Record<Tone, string> = {
   cream: "text-[var(--ink-label)]",
   bright: "text-[var(--ink-label)]",
-  sage: "text-[var(--forest)]/65",
+  sage: "text-[var(--forest)]/80",
   forest: "text-[var(--ink-on-dark-muted)]",
-  terracotta: "text-[#fdf6f2]/75",
-  ochre: "text-[var(--forest-deep)]/70",
+  terracotta: "text-[#fdf6f2]",
+  ochre: "text-[var(--forest-deep)]",
 };
 
 /** A colour-blocked tile — the basic building block of every bento grid. */
@@ -169,23 +179,6 @@ export const Tile = ({
 );
 
 /**
- * A money string is one unbreakable token to the browser — "₹12,34,567.00"
- * has no space to wrap at — so a figure wider than its tile either overflows
- * or gets ellipsed. Marking each group separator as a break opportunity lets
- * a wrapping figure break at "12,34," instead of mid-group.
- */
-export const breakableFigure = (value: React.ReactNode): React.ReactNode => {
-  if (typeof value !== "string") return value;
-  const chunks = value.split(/(?<=,)/);
-  return chunks.map((chunk, i) => (
-    <Fragment key={i}>
-      {chunk}
-      {i < chunks.length - 1 && <wbr />}
-    </Fragment>
-  ));
-};
-
-/**
  * Tiny caps label over a large numeral — the figure is the hero, the label
  * is a whisper. `value` stays on one line; long values shrink rather than wrap.
  *
@@ -194,9 +187,11 @@ export const breakableFigure = (value: React.ReactNode): React.ReactNode => {
  * enough tiles that the default numeral would push the last row off the fold;
  * the dashboard uses it so eight figures fit where five used to.
  *
- * `wrap` lets the figure use more than one line — for tall tiles where the
- * room is already there and truncating a number would be the worse trade.
- * Pair it with `currencyFit` so the value handed in is one that fits.
+ * The figure never wraps. It used to be allowed to, on tall tiles, on the
+ * theory that two lines beat truncation — but a number broken across lines
+ * reads as two numbers ("₹1,72," over "000.00"), which is worse than either.
+ * Hand the value through `currencyFit` with this tile's width budget and it
+ * arrives already short enough to fit on one.
  */
 export const StatTile = ({
   label,
@@ -206,7 +201,6 @@ export const StatTile = ({
   icon,
   tone = "cream",
   size = "md",
-  wrap = false,
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & {
@@ -217,7 +211,6 @@ export const StatTile = ({
   icon?: React.ReactNode;
   tone?: Tone;
   size?: "md" | "sm";
-  wrap?: boolean;
 }) => {
   const sm = size === "sm";
   return (
@@ -236,12 +229,11 @@ export const StatTile = ({
         <div className="flex items-baseline gap-1.5">
           <span
             className={cn(
-              "numeral",
-              wrap ? "min-w-0 break-words" : "truncate",
+              "numeral truncate",
               sm ? "text-[clamp(1.25rem,5vw,1.75rem)]" : "text-[clamp(1.75rem,7vw,2.5rem)]",
             )}
           >
-            {wrap ? breakableFigure(value) : value}
+            {value}
           </span>
           {unit && (
             <span className={cn(sm ? "text-[10px]" : "text-[11px]", "font-bold", TONE_LABEL[tone])}>
@@ -526,7 +518,7 @@ export const Badge = ({
       color === "slate" && "bg-[var(--surface-sunk)] text-[var(--ink-muted)]",
       color === "blue" && "bg-[var(--sage)] text-[var(--forest)]",
       color === "green" && "bg-[var(--forest)] text-[var(--ink-on-dark)]",
-      color === "amber" && "bg-[var(--ochre)]/22 text-[#8a6a10]",
+      color === "amber" && "bg-[var(--ochre)]/22 text-[var(--ochre-ink)]",
       color === "red" && "bg-[var(--terracotta)]/15 text-[var(--terracotta-hover)]",
       color === "gray" && "bg-[var(--surface-sunk)] text-[var(--ink-label)]",
       className,

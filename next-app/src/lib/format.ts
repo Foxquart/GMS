@@ -1,6 +1,30 @@
+/**
+ * Money for the screen. Paise appear only when there *are* paise.
+ *
+ * A workshop bills in whole rupees almost every time, so a fixed two decimals
+ * spends six glyphs per figure saying "and no paise" — width the stat tiles do
+ * not have, and the direct cause of the dashboard's largest figure breaking
+ * mid-group into "₹1,72," / "000.00". An amount that genuinely carries paise
+ * still prints both digits, so nothing is ever silently rounded away.
+ *
+ * The invoice PDF keeps its own fixed-2dp formatter (pdf.service.ts) on
+ * purpose: a document somebody files wants every column to align, which is the
+ * opposite trade to a tile that has to fit.
+ */
 export const currency = (n: string | number | null | undefined) => {
   const v = Number(n ?? 0);
-  return "₹" + v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // The magnitude is formatted on its own so the sign can be placed ahead of
+  // the symbol. Left to `toLocaleString`, a negative renders as "₹-10,92,000",
+  // which disagrees with the short form below and reads as a typo either way.
+  const abs = Math.abs(v);
+  const hasPaise = Math.round(abs * 100) % 100 !== 0;
+  return (
+    (v < 0 ? "-₹" : "₹") +
+    abs.toLocaleString("en-IN", {
+      minimumFractionDigits: hasPaise ? 2 : 0,
+      maximumFractionDigits: 2,
+    })
+  );
 };
 
 /**
@@ -12,33 +36,43 @@ export const currency = (n: string | number | null | undefined) => {
 const figureEm = (s: string) =>
   [...s].reduce((w, c) => w + (c === "," || c === "." ? 0.27 : 0.57), 0);
 
+/** Two decimals, minus the ones that are only padding: 2.00 → "2", 1.70 → "1.7". */
+const trimZeros = (v: number) => v.toFixed(2).replace(/\.?0+$/, "");
+
 /**
- * Money sized to the tile it has to live in. The exact amount wins while it
- * fits the lines available; past that the figure switches to the Indian short
- * form — "₹10.92 lakh" — rather than being ellipsed. A rounded number a
- * mechanic can read across the counter beats an exact one cut off at "₹12,34…",
- * which tells them nothing about the order of magnitude.
+ * Money sized to the tile it has to live in, always on ONE line.
  *
- * `emPerLine` is the narrowest case each tile actually renders at: the numeral
- * clamps to a rem floor on small phones while the tile keeps shrinking, so the
- * tightest fit is a 320px screen, not the smallest font.
+ * The exact figure wins while it fits; past that it switches to the Indian
+ * short form rather than wrapping or being ellipsed. A rounded number read
+ * across the counter beats an exact one broken mid-group — "₹1,72," over
+ * "000.00" is worse than useless, because it reads as two numbers.
+ *
+ * `em` is the width available in em of the `.numeral` face at its *narrowest*
+ * render: a 320px phone, where the numeral has hit its rem floor while the
+ * tile is still shrinking. Size the budget there and every wider screen is
+ * free.
  */
 export const currencyFit = (
   n: string | number | null | undefined,
-  { lines = 1, emPerLine = 4.4 }: { lines?: number; emPerLine?: number } = {},
+  { em = 3.8 }: { em?: number } = {},
 ) => {
   const full = currency(n);
-  if (figureEm(full) <= lines * emPerLine) return full;
+  if (figureEm(full) <= em) return full;
 
   const v = Number(n ?? 0);
   const sign = v < 0 ? "-" : "";
   const abs = Math.abs(v);
+  // Abbreviated, not spelled out. "₹10.92 lakh" measures wider than the
+  // "₹10,92,000" it was meant to shorten, so it never fit the tile it exists
+  // for; "L" and "Cr" are how these amounts get written in India anyway.
+  //
   // The crore threshold sits just under a crore, not on it: ₹99,99,999 rounds
-  // to "100.00 lakh" at two decimals, and a unit that has to count past 99 is
-  // the wrong unit.
-  if (abs >= 9.995e6) return `${sign}₹${(abs / 1e7).toFixed(2)} crore`;
-  if (abs >= 1e5) return `${sign}₹${(abs / 1e5).toFixed(2)} lakh`;
-  // Below a lakh there is no shorter honest form — thousands read fine in full.
+  // to "100L" at two decimals, and a unit that has to count past 99 is the
+  // wrong unit.
+  if (abs >= 9.995e6) return `${sign}₹${trimZeros(abs / 1e7)}Cr`;
+  if (abs >= 1e5) return `${sign}₹${trimZeros(abs / 1e5)}L`;
+  // Below a lakh there is no shorter honest form, and none is needed: the
+  // widest figure in that range, ₹99,999, already fits the smallest tile.
   return full;
 };
 

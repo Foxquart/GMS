@@ -14,12 +14,8 @@ import {
   LogOut,
   FileText,
   Shield,
-  Layers,
-  Truck,
-  History,
   ArrowLeftRight,
   AlertTriangle,
-  Menu,
   X,
 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -37,9 +33,12 @@ type NavGroup = { label?: string; items: NavItem[] };
 /**
  * Every destination, visible at once.
  *
- * Categories, Suppliers, Movements and Transfers used to hide behind a "More"
- * sheet, which made them effectively undiscoverable. Grouping is what keeps a
- * list this long readable — not hiding half of it.
+ * Transfers used to hide behind a "More" sheet, which made it effectively
+ * undiscoverable. Grouping is what keeps a list this long readable — not
+ * hiding half of it.
+ *
+ * There is no Categories entry: categories and their sub-categories are part
+ * of the Parts page now, not a destination of their own.
  */
 const NAV_GROUPS: NavGroup[] = [
   { items: [{ href: "/dashboard", label: "Dashboard", icon: Home }] },
@@ -56,9 +55,11 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/inventory", label: "Parts", icon: Package },
       { href: "/inventory/low-stock", label: "Low Stock", icon: AlertTriangle, badge: "lowStock" },
-      { href: "/inventory/categories", label: "Categories", icon: Layers },
-      { href: "/inventory/suppliers", label: "Suppliers", icon: Truck },
-      { href: "/inventory/movements", label: "Movements", icon: History },
+      // Hidden from the sidebar for now. The pages are still routable — put
+      // these back (with their `Truck` and `History` icon imports) to list
+      // them again.
+      // { href: "/inventory/suppliers", label: "Suppliers", icon: Truck },
+      // { href: "/inventory/movements", label: "Movements", icon: History },
       { href: "/inventory/transfers", label: "Transfers", icon: ArrowLeftRight },
     ],
   },
@@ -69,6 +70,24 @@ const NAV_GROUPS: NavGroup[] = [
 ];
 
 const ALL_HREFS = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.href));
+
+/**
+ * The floating tab bar on mobile.
+ *
+ * Four destinations, not eleven: these are the ones a shift actually moves
+ * between, and four is what fits as a comfortable target rather than a row of
+ * slivers. Everything else — and the account — is one tap away behind the
+ * avatar in the top bar, which opens the full tree.
+ *
+ * Labels here are the same words the full menu uses. A tab called something
+ * different from the row it leads to reads as a different destination.
+ */
+const TAB_ITEMS: NavItem[] = [
+  { href: "/dashboard", label: "Dashboard", icon: Home },
+  { href: "/jobs", label: "Jobs", icon: Wrench },
+  { href: "/inventory", label: "Parts", icon: Package },
+  { href: "/invoices", label: "Invoices", icon: FileText },
+];
 
 
 /**
@@ -129,11 +148,21 @@ export function AppNav() {
     router.refresh();
   };
 
-  // Longest match wins, so /inventory/categories highlights Categories rather
+  // Longest match wins, so /inventory/suppliers highlights Suppliers rather
   // than lighting up its parent Parts row as well.
   const activeHref = ALL_HREFS.filter((href) =>
     href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/"),
   ).sort((a, b) => b.length - a.length)[0];
+
+  // The tab bar highlights the *section* you are in, not the exact page: on
+  // /inventory/suppliers the Parts tab stays lit, because that is the tab you
+  // took to get there. The sidebar deliberately does the opposite — it lists
+  // the sub-pages, so it can point at the exact one.
+  const activeTab = TAB_ITEMS.map((t) => t.href)
+    .filter((href) => pathname === href || pathname.startsWith(href + "/"))
+    .sort((a, b) => b.length - a.length)[0];
+
+  const lowStockCount = badgeCounts.lowStock;
 
   const isSuperadmin = user?.role?.toUpperCase() === "SUPERADMIN";
   const superadminActive = pathname.startsWith("/superadmin");
@@ -294,18 +323,12 @@ export function AppNav() {
         </div>
       </aside>
 
-      {/* ── Mobile top bar ──────────────────────────────────────────── */}
-      <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-[var(--hairline)] bg-[var(--canvas)]/95 px-4 backdrop-blur-sm lg:hidden">
-        <button
-          ref={triggerRef}
-          onClick={() => setDrawerOpen(true)}
-          aria-label="Open navigation menu"
-          aria-expanded={drawerOpen}
-          aria-controls="app-drawer"
-          className="-ml-2 flex h-11 w-11 items-center justify-center rounded-full text-[var(--ink)] transition-colors duration-150 ease-out active:bg-[var(--surface-sunk)]"
-        >
-          <Menu size={22} />
-        </button>
+      {/* ── Mobile top bar ──────────────────────────────────────────────
+          Identity on the left, the account on the right. Navigation itself
+          has moved to the floating bar in the thumb zone, so the only control
+          up here is the avatar — the least-reached corner of the screen now
+          holds the least-used control instead of the most-used one. */}
+      <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-[var(--hairline)] bg-[var(--canvas)]/95 px-4 backdrop-blur-sm lg:hidden">
         <div className="flex min-w-0 items-center gap-2">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--forest)] text-[var(--ink-on-dark)]">
             <Wrench size={14} />
@@ -314,9 +337,81 @@ export function AppNav() {
             Garage Manager
           </span>
         </div>
+
+        <button
+          ref={triggerRef}
+          onClick={() => setDrawerOpen(true)}
+          // The dot is the only cue that something inside the menu wants
+          // attention, so the label has to say what it means — a bare dot is
+          // invisible to a screen reader and ambiguous to everyone else.
+          aria-label={
+            lowStockCount > 0
+              ? `Menu and account — ${lowStockCount} parts low on stock`
+              : "Menu and account"
+          }
+          aria-expanded={drawerOpen}
+          aria-controls="app-drawer"
+          className="relative -mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-transform duration-150 ease-out active:scale-95"
+        >
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--sage)] text-sm font-extrabold text-[var(--forest)]">
+            {initial}
+          </span>
+          {lowStockCount > 0 && (
+            <span
+              aria-hidden="true"
+              className="absolute right-0.5 top-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--canvas)] bg-[var(--terracotta)]"
+            />
+          )}
+        </button>
       </header>
 
-      {/* ── Mobile drawer ───────────────────────────────────────────── */}
+      {/* ── Mobile tab bar ──────────────────────────────────────────────
+          Floats clear of the screen edge rather than sitting flush on it, so
+          it reads as a control that belongs to your hand rather than a band
+          welded to the bottom of the page. `--nav-inset` reserves exactly the
+          room it takes, so nothing ever ends up underneath it. */}
+      <div className="fixed inset-x-0 bottom-0 z-40 lg:hidden">
+        {/* Content dissolves into the canvas as it scrolls past instead of
+            colliding with a hard edge. */}
+        <div
+          aria-hidden="true"
+          className="h-6 bg-gradient-to-t from-[var(--canvas)] to-transparent"
+        />
+        <div className="bg-[var(--canvas)] px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+          <nav
+            aria-label="Primary"
+            className="flex h-16 items-center gap-1 rounded-full border border-[var(--hairline)] bg-[var(--surface-bright)] px-2 shadow-[var(--lift-3)]"
+          >
+            {TAB_ITEMS.map((item) => {
+              const active = activeTab === item.href;
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "flex h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-full px-1",
+                    "transition-colors duration-150 ease-out",
+                    active
+                      ? "bg-[var(--sage)] text-[var(--forest)]"
+                      : "text-[var(--ink-muted)] active:bg-[var(--surface-sunk)]",
+                  )}
+                >
+                  <Icon size={19} strokeWidth={active ? 2.4 : 2} className="shrink-0" />
+                  <span className="max-w-full truncate text-[10px] font-bold leading-none">
+                    {item.label}
+                  </span>
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
+      </div>
+
+      {/* ── Mobile menu sheet ───────────────────────────────────────────
+          Everything the tab bar does not carry, plus the account. Opened from
+          the avatar, so it covers the screen rather than sitting beside it. */}
       <AnimatePresence>
         {drawerOpen && (
           <div className="fixed inset-0 z-50 lg:hidden">
@@ -334,11 +429,15 @@ export function AppNav() {
               role="dialog"
               aria-modal="true"
               aria-label="Navigation"
-              initial={{ x: "-100%" }}
+              initial={{ x: "100%" }}
               animate={{ x: 0 }}
-              exit={{ x: "-100%" }}
+              exit={{ x: "100%" }}
               transition={{ type: "spring", damping: 32, stiffness: 380 }}
-              className="absolute inset-y-0 left-0 flex w-[86%] max-w-[20rem] flex-col bg-[var(--surface)] shadow-[var(--lift-3)]"
+              // Full width, and entering from the right — the side the avatar
+              // that opens it sits on. A part-width panel would leave a strip
+              // of dead page beside a list this long for no benefit; at full
+              // width the rows are the widest targets on the screen.
+              className="absolute inset-y-0 right-0 flex w-full flex-col bg-[var(--surface)] shadow-[var(--lift-3)]"
             >
               {/* Coloured header: wordmark and the way out along the top,
                   then who is signed in, centred. The curved bottom edge is
