@@ -4,6 +4,10 @@ import { Skeleton } from "@/components/ui";
  * Customer file shell: hero panel, the three billing figures, a vehicle
  * grid and the first rows of the jobs list — the same rhythm the loaded
  * page uses, so arriving content slots in rather than shifting.
+ *
+ * No band for the condensed record bar: that bar sits in a zero-height sticky
+ * rail and only floats in once the hero has scrolled away, so it reserves no
+ * space here or on the loaded page.
  */
 export default function CustomerDetailLoading() {
   return (

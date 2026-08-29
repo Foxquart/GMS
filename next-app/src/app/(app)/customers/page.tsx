@@ -5,17 +5,19 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { IndianRupee, Plus, Search, User, X } from "lucide-react";
-import { api } from "@/lib/api";
+import { ApiClientError, api, errorMessage, errorReference } from "@/lib/api";
 import {
   Badge,
   Button,
   EmptyState,
   ErrorState,
   Field,
+  InlineError,
   Input,
   Skeleton,
   StatTile,
   Sheet,
+  StickyControls,
 } from "@/components/ui";
 import { SpotTools } from "@/components/illustrations";
 import { currency } from "@/lib/format";
@@ -109,6 +111,19 @@ export default function CustomersPage() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
+  // The failure belongs to the sheet the operator is looking at, so it is held
+  // here and rendered next to the button that failed — not thrown at a toast.
+  const [createError, setCreateError] = useState<unknown>(null);
+
+  const openNewCustomer = () => {
+    setCreateError(null);
+    setOpen(true);
+  };
+
+  const closeNewCustomer = () => {
+    setOpen(false);
+    setCreateError(null);
+  };
 
   const { data: customers, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["customers", search],
@@ -123,14 +138,27 @@ export default function CustomersPage() {
       }),
     onSuccess: () => {
       toast.success("Customer created");
+      setCreateError(null);
       setOpen(false);
       setName("");
       setPhone("");
       setAddress("");
       qc.invalidateQueries({ queryKey: ["customers"] });
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (err) => setCreateError(err),
   });
+
+  // A unique-constraint hit means this person is already on file — the useful
+  // next step is finding them, not retyping the form.
+  const createDuplicate =
+    createError instanceof ApiClientError && createError.code === "DUPLICATE";
+
+  const findExisting = () => {
+    const term = phone.trim() || name.trim();
+    setQ(term);
+    setSearch(term);
+    closeNewCustomer();
+  };
 
   const ledger = useMemo(() => {
     const rows = customers ?? [];
@@ -149,17 +177,52 @@ export default function CustomersPage() {
 
   return (
     <div className="space-y-5">
-      <header className="flex items-end justify-between gap-3">
-        <div className="min-w-0">
-          <p className="tile-label text-[var(--ink-label)]">Registry</p>
-          <h1 className="mt-1 text-[clamp(1.5rem,6vw,2rem)] font-extrabold leading-none tracking-tight text-[var(--ink)]">
-            Customers
-          </h1>
+      {/* Pinned chrome: the registry title, "New customer" and the search
+          field. Both are short, so together they cost well under a fifth of a
+          360x640 phone. The outstanding-balance tile is a summary of the list,
+          not a control for it, so it sits below and scrolls away with it. */}
+      <StickyControls className="space-y-2.5">
+        <header className="flex items-end justify-between gap-3">
+          <div className="min-w-0">
+            <p className="tile-label text-[var(--ink-label)]">Registry</p>
+            <h1 className="mt-1 text-[clamp(1.5rem,6vw,2rem)] font-extrabold leading-none tracking-tight text-[var(--ink)]">
+              Customers
+            </h1>
+          </div>
+          <Button onClick={openNewCustomer} className="shrink-0">
+            <Plus size={16} /> New customer
+          </Button>
+        </header>
+
+        <div className="relative">
+          <Search
+            size={16}
+            className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--ink-label)]"
+          />
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && setSearch(q)}
+            placeholder="Search by name or phone, then press Enter"
+            aria-label="Search customers by name or phone"
+            className={cn("pl-11", q && "pr-11")}
+          />
+          {q && (
+            <button
+              type="button"
+              onClick={clearSearch}
+              aria-label="Clear search"
+              className={cn(
+                "absolute right-2.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full",
+                "text-[var(--ink-label)] transition-[background-color,color,scale] duration-150 ease-out",
+                "hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)] active:scale-90 cursor-pointer",
+              )}
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
-        <Button onClick={() => setOpen(true)}>
-          <Plus size={16} /> New customer
-        </Button>
-      </header>
+      </StickyControls>
 
       {isLoading ? (
         <Skeleton className="h-[124px] rounded-[var(--r-tile)]" />
@@ -177,35 +240,6 @@ export default function CustomersPage() {
         />
       )}
 
-      <div className="relative">
-        <Search
-          size={16}
-          className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--ink-label)]"
-        />
-        <Input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && setSearch(q)}
-          placeholder="Search by name or phone, then press Enter"
-          aria-label="Search customers by name or phone"
-          className={cn("pl-11", q && "pr-11")}
-        />
-        {q && (
-          <button
-            type="button"
-            onClick={clearSearch}
-            aria-label="Clear search"
-            className={cn(
-              "absolute right-2.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full",
-              "text-[var(--ink-label)] transition-[background-color,color,scale] duration-150 ease-out",
-              "hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)] active:scale-90 cursor-pointer",
-            )}
-          >
-            <X size={14} />
-          </button>
-        )}
-      </div>
-
       {isLoading ? (
         <div className="space-y-2.5" aria-busy="true">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -215,7 +249,8 @@ export default function CustomersPage() {
       ) : isError ? (
         <ErrorState
           title="Couldn't load your customers"
-          message={(error as Error)?.message}
+          message={errorMessage(error)}
+          reference={errorReference(error)}
           onRetry={() => refetch()}
         />
       ) : !customers?.length ? (
@@ -229,7 +264,7 @@ export default function CustomersPage() {
                 <Button variant="outline" onClick={clearSearch}>
                   Clear search
                 </Button>
-                <Button onClick={() => setOpen(true)}>
+                <Button onClick={openNewCustomer}>
                   <Plus size={16} /> New customer
                 </Button>
               </div>
@@ -241,7 +276,7 @@ export default function CustomersPage() {
             description="Add your first customer — their vehicles, jobs, invoices and payments all hang off this record."
             illustration={<SpotTools size={84} />}
             action={
-              <Button onClick={() => setOpen(true)}>
+              <Button onClick={openNewCustomer}>
                 <Plus size={16} /> New customer
               </Button>
             }
@@ -255,12 +290,15 @@ export default function CustomersPage() {
         </div>
       )}
 
-      <Sheet open={open} onClose={() => setOpen(false)} title="New customer">
+      <Sheet open={open} onClose={closeNewCustomer} title="New customer">
         <div className="space-y-4">
           <Field label="Full name *">
             <Input
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                setCreateError(null);
+              }}
               placeholder="Rahul Das"
               autoComplete="name"
             />
@@ -268,7 +306,10 @@ export default function CustomersPage() {
           <Field label="Phone number *" hint="Used for calls, WhatsApp and invoice sharing.">
             <Input
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => {
+                setPhone(e.target.value);
+                setCreateError(null);
+              }}
               inputMode="tel"
               placeholder="98765 43210"
               autoComplete="tel"
@@ -277,11 +318,32 @@ export default function CustomersPage() {
           <Field label="Address (optional)">
             <Input
               value={address}
-              onChange={(e) => setAddress(e.target.value)}
+              onChange={(e) => {
+                setAddress(e.target.value);
+                setCreateError(null);
+              }}
               placeholder="12 Gandhi Road, Tezpur"
               autoComplete="street-address"
             />
           </Field>
+          {createError != null && (
+            <div className="space-y-2.5">
+              <InlineError
+                message={
+                  createDuplicate
+                    ? "Someone with these details is already in the registry."
+                    : errorMessage(createError)
+                }
+                reference={errorReference(createError)}
+              />
+              {createDuplicate && (
+                <Button variant="outline" size="sm" onClick={findExisting}>
+                  <Search size={14} /> Find them in the registry
+                </Button>
+              )}
+            </div>
+          )}
+
           <Button
             size="lg"
             className="w-full"

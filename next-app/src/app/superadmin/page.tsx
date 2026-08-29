@@ -1,16 +1,18 @@
 "use client";
 
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
+  ArrowRight,
   Database,
   FileText,
   RefreshCw,
   Server,
   Users,
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, errorMessage, errorReference } from "@/lib/api";
 import {
   Badge,
   BentoGrid,
@@ -22,6 +24,7 @@ import {
   Skeleton,
   StatTile,
 } from "@/components/ui";
+import { cn } from "@/lib/cn";
 import { formatTime, latencyTone, statusBadgeColor, statusTone } from "./_status";
 
 export default function SuperadminOverviewPage() {
@@ -37,7 +40,8 @@ export default function SuperadminOverviewPage() {
         <OverviewHeader lastCheckAt={null} isRefetching={false} onRefresh={() => refetch()} />
         <ErrorState
           title="Health checks didn't come back"
-          message={(error as Error)?.message ?? "The control plane couldn't reach the health endpoint."}
+          message={errorMessage(error)}
+          reference={errorReference(error)}
           onRetry={() => refetch()}
         />
       </div>
@@ -130,14 +134,35 @@ export default function SuperadminOverviewPage() {
           </div>
         </Card>
 
-        <Panel title="Recent activity" icon={<FileText size={17} />}>
+        <Panel
+          title="Recent activity"
+          icon={<FileText size={17} />}
+          action={
+            recentAudit.length > 0 ? (
+              <Link
+                href="/superadmin/activity"
+                className={cn(
+                  "inline-flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-extrabold",
+                  "text-[var(--ink-on-dark-muted)] transition-[background-color,color] duration-150 ease-out",
+                  "hover:bg-[var(--forest-deep)] hover:text-[var(--ink-on-dark)]",
+                )}
+              >
+                See all <ArrowRight size={13} />
+              </Link>
+            ) : undefined
+          }
+        >
           {recentAudit.length === 0 ? (
             <p className="rounded-[var(--r-tile)] bg-[var(--forest-deep)] p-4 text-center text-xs font-semibold text-[var(--ink-on-dark-muted)]">
               No audit events recorded yet. Admin actions will stream in here.
             </p>
           ) : (
-            <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
-              {recentAudit.map((log: any) => (
+            /* This was a `max-h-72 overflow-y-auto` well: an inner scroll
+               container that swallows a touch drag and leaves you unable to
+               scroll the page from inside it. The feed is six rows and the
+               full log has its own page, so the panel just ends. */
+            <div className="space-y-1.5">
+              {recentAudit.slice(0, 6).map((log: any) => (
                 <div
                   key={log.id}
                   className="flex items-start justify-between gap-3 rounded-[var(--r-tile)] bg-[var(--forest-deep)] px-3 py-2.5"
@@ -238,9 +263,12 @@ function OverviewSkeleton() {
         <Skeleton className="h-28" />
         <Skeleton className="h-28" />
       </div>
+      {/* The activity panel no longer scrolls inside itself, so it is the
+          taller of the pair and the row stretches the checks card to match
+          it — the shell has to say the same thing or the card grows on paint. */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <Skeleton className="h-56 rounded-[var(--r-card)]" />
-        <Skeleton className="h-56 rounded-[var(--r-panel)]" />
+        <Skeleton className="h-52 rounded-[var(--r-card)] lg:h-[26rem]" />
+        <Skeleton className="h-[26rem] rounded-[var(--r-panel)]" />
       </div>
     </div>
   );

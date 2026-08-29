@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -12,55 +12,84 @@ import {
   Users,
   Settings,
   LogOut,
-  Plus,
-  MoreHorizontal,
   FileText,
   Shield,
   Layers,
   Truck,
+  History,
+  ArrowLeftRight,
+  AlertTriangle,
+  Menu,
   X,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 
-const DESKTOP_CHANNELS = [
-  { href: "/dashboard", label: "Dashboard", icon: Home },
-  { href: "/jobs", label: "Jobs", icon: Wrench },
-  { href: "/inventory", label: "Inventory", icon: Package },
-  { href: "/customers", label: "Customers", icon: Users },
-  { href: "/invoices", label: "Invoices", icon: FileText },
-  { href: "/inventory/categories", label: "Categories", icon: Layers },
-  { href: "/settings", label: "Settings", icon: Settings },
-];
-
-const MOBILE_PRIMARY = [
-  { href: "/dashboard", label: "Dashboard", icon: Home },
-  { href: "/jobs", label: "Jobs", icon: Wrench },
-  { href: "/inventory", label: "Inventory", icon: Package },
-  { href: "/customers", label: "Customers", icon: Users },
-];
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof Home;
+  /** Key into the live counts map, for items that carry a badge. */
+  badge?: "lowStock";
+};
+type NavGroup = { label?: string; items: NavItem[] };
 
 /**
- * Routes whose primary create-action belongs on the floating button.
+ * Every destination, visible at once.
  *
- * Pages that carry their own bottom action bar (Inventory has Transfer /
- * New Part) are deliberately absent — a global FAB would land on top of
- * those buttons and cover them. The dashboard is absent too: its report
- * rows run the full width, so a floating button sits on the figures.
+ * Categories, Suppliers, Movements and Transfers used to hide behind a "More"
+ * sheet, which made them effectively undiscoverable. Grouping is what keeps a
+ * list this long readable — not hiding half of it.
  */
-const FAB_ROUTES: { match: string; href: string; label: string }[] = [
-  { match: "/jobs", href: "/jobs/new", label: "New job" },
+const NAV_GROUPS: NavGroup[] = [
+  { items: [{ href: "/dashboard", label: "Dashboard", icon: Home }] },
+  {
+    label: "Workshop",
+    items: [
+      { href: "/jobs", label: "Jobs", icon: Wrench },
+      { href: "/customers", label: "Customers", icon: Users },
+      { href: "/invoices", label: "Invoices", icon: FileText },
+    ],
+  },
+  {
+    label: "Inventory",
+    items: [
+      { href: "/inventory", label: "Parts", icon: Package },
+      { href: "/inventory/low-stock", label: "Low Stock", icon: AlertTriangle, badge: "lowStock" },
+      { href: "/inventory/categories", label: "Categories", icon: Layers },
+      { href: "/inventory/suppliers", label: "Suppliers", icon: Truck },
+      { href: "/inventory/movements", label: "Movements", icon: History },
+      { href: "/inventory/transfers", label: "Transfers", icon: ArrowLeftRight },
+    ],
+  },
+  {
+    label: "Account",
+    items: [{ href: "/settings", label: "Settings", icon: Settings }],
+  },
 ];
+
+const ALL_HREFS = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.href));
 
 export function AppNav() {
   const pathname = usePathname() || "";
   const router = useRouter();
-  const [showMore, setShowMore] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const { data: user } = useQuery({
     queryKey: ["me"],
     queryFn: () => api<{ userId: string; email: string; role: string }>("/api/auth/me"),
   });
+
+  // Same query key the Low stock page uses, so the badge and the page share
+  // one cached response rather than fetching twice.
+  const { data: lowStock } = useQuery({
+    queryKey: ["inventory", "low-stock"],
+    queryFn: () => api<unknown[]>("/api/inventory/low-stock"),
+  });
+
+  const badgeCounts: Record<string, number> = { lowStock: lowStock?.length ?? 0 };
 
   const logout = async () => {
     await api("/api/auth/logout", { method: "POST" });
@@ -68,90 +97,152 @@ export function AppNav() {
     router.refresh();
   };
 
-  const isActive = (href: string) =>
-    href === "/" ? pathname === "/" : pathname.startsWith(href);
-
-  // /inventory/categories also matches /inventory, which would highlight two
-  // sidebar rows at once. Longest match wins.
-  const activeChannel = DESKTOP_CHANNELS.map((c) => c.href)
-    .filter((href) => isActive(href))
-    .sort((a, b) => b.length - a.length)[0];
+  // Longest match wins, so /inventory/categories highlights Categories rather
+  // than lighting up its parent Parts row as well.
+  const activeHref = ALL_HREFS.filter((href) =>
+    href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/"),
+  ).sort((a, b) => b.length - a.length)[0];
 
   const isSuperadmin = user?.role?.toUpperCase() === "SUPERADMIN";
+  const superadminActive = pathname.startsWith("/superadmin");
 
-  // Only ever one pill is active. Categories and Suppliers sit under
-  // /inventory, so the Inventory pill owns them — listing them here too lit
-  // up Inventory and More simultaneously and crowded the bar.
-  const moreActive = ["/invoices", "/settings", "/superadmin"].some((p) =>
-    pathname.startsWith(p),
-  );
+  const closeDrawer = useCallback(() => {
+    setDrawerOpen(false);
+    triggerRef.current?.focus(); // focus returns to what opened it (WCAG 2.4.3)
+  }, []);
 
-  // Only exact list roots get the button — not detail pages, which have
-  // their own actions, and not routes with a page-level bottom bar.
-  const fab = FAB_ROUTES.find((r) => pathname === r.match);
+  // Escape to leave, and a focus trap so keyboard users cannot tab out into
+  // the inert page behind the scrim (WCAG 2.1.2, no keyboard trap).
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const node = drawerRef.current;
+    node?.querySelector<HTMLElement>("a, button")?.focus();
 
-  return (
-    <div suppressHydrationWarning>
-      {/* ── Desktop sidebar ─────────────────────────────────────────── */}
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-[var(--hairline)] bg-[var(--surface)] md:flex">
-        <div className="flex h-16 items-center gap-3 px-5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-[var(--r-control)] bg-[var(--forest)] text-[var(--ink-on-dark)]">
-            <Wrench size={19} />
-          </div>
-          <div>
-            <p className="text-sm font-extrabold tracking-tight text-[var(--ink)]">Garage Manager</p>
-            <p className="text-[11px] font-semibold text-[var(--ink-muted)]">Digital Workshop</p>
-          </div>
-        </div>
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        closeDrawer();
+        return;
+      }
+      if (e.key !== "Tab" || !node) return;
+      const focusables = node.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [drawerOpen, closeDrawer]);
 
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
-          {DESKTOP_CHANNELS.map((item) => {
-            const active = activeChannel === item.href;
+  const displayName = user?.email ? user.email.split("@")[0] : "Garage Admin";
+  const initial = user?.email ? user.email[0].toUpperCase() : "G";
+
+  const navBody = (onNavigate?: () => void) => (
+    <nav aria-label="Main" className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
+      {NAV_GROUPS.map((group, gi) => (
+        <div key={group.label ?? `group-${gi}`} className="space-y-0.5">
+          {group.label && (
+            <p className="tile-label px-4 pb-1.5 text-[var(--ink-label)]">{group.label}</p>
+          )}
+          {group.items.map((item) => {
+            const active = activeHref === item.href;
             const Icon = item.icon;
             return (
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={onNavigate}
+                aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex items-center gap-3 rounded-full px-4 py-2.5 text-sm font-bold",
+                  "flex items-center gap-3 rounded-[var(--r-control)] px-4 py-2.5 text-sm font-bold",
                   "transition-[background-color,color] duration-150 ease-out",
                   active
-                    ? "bg-[var(--forest)] text-[var(--ink-on-dark)]"
+                    ? "bg-[var(--sage)] text-[var(--forest)]"
                     : "text-[var(--ink-muted)] hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)]",
                 )}
               >
-                <Icon size={18} />
-                <span>{item.label}</span>
+                <Icon size={18} strokeWidth={active ? 2.4 : 2} className="shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                {item.badge && badgeCounts[item.badge] > 0 && (
+                  <span
+                    aria-label={`${badgeCounts[item.badge]} needing attention`}
+                    className="tabular shrink-0 rounded-full bg-[var(--terracotta)] px-2 py-0.5 text-[11px] font-extrabold text-[#fdf6f2]"
+                  >
+                    {badgeCounts[item.badge]}
+                  </span>
+                )}
               </Link>
             );
           })}
+        </div>
+      ))}
 
-          {isSuperadmin && (
-            <Link
-              href="/superadmin"
-              className={cn(
-                "mt-3 flex items-center gap-3 rounded-full px-4 py-2.5 text-sm font-bold",
-                "transition-[background-color,color] duration-150 ease-out",
-                isActive("/superadmin")
-                  ? "bg-[var(--terracotta)] text-[#fdf6f2]"
-                  : "text-[var(--terracotta)] hover:bg-[var(--terracotta)]/10",
-              )}
-            >
-              <Shield size={18} />
-              <span>Superadmin</span>
-            </Link>
-          )}
-        </nav>
+      {isSuperadmin && (
+        <div className="space-y-0.5">
+          <p className="tile-label px-4 pb-1.5 text-[var(--ink-label)]">Platform</p>
+          <Link
+            href="/superadmin"
+            onClick={onNavigate}
+            aria-current={superadminActive ? "page" : undefined}
+            className={cn(
+              "flex items-center gap-3 rounded-[var(--r-control)] px-4 py-2.5 text-sm font-bold",
+              "transition-[background-color,color] duration-150 ease-out",
+              superadminActive
+                ? "bg-[var(--ochre)] text-[var(--forest-deep)]"
+                : "text-[var(--ink-muted)] hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)]",
+            )}
+          >
+            <Shield size={18} className="shrink-0" />
+            <span className="truncate">Superadmin</span>
+          </Link>
+        </div>
+      )}
+    </nav>
+  );
 
-        <div className="flex items-center justify-between gap-2 border-t border-[var(--hairline)] p-4">
+  return (
+    <>
+      {/* Bypass block for keyboard users (WCAG 2.4.1). */}
+      <a
+        href="#main"
+        className="sr-only rounded-full bg-[var(--forest)] px-4 py-2 text-sm font-bold text-[var(--ink-on-dark)] focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60]"
+      >
+        Skip to content
+      </a>
+
+      {/* ── Desktop sidebar ─────────────────────────────────────────────
+          Persistent from 1024px up, where there is room for it to earn its
+          keep; below that the same tree lives in the drawer. */}
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-72 flex-col border-r border-[var(--hairline)] bg-[var(--surface)] lg:flex">
+        <div className="flex h-16 shrink-0 items-center gap-3 px-5">
+          <div className="flex h-10 w-10 items-center justify-center rounded-[var(--r-control)] bg-[var(--forest)] text-[var(--ink-on-dark)]">
+            <Wrench size={19} />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-extrabold tracking-tight text-[var(--ink)]">
+              Garage Manager
+            </p>
+            <p className="text-[11px] font-semibold text-[var(--ink-muted)]">Digital Workshop</p>
+          </div>
+        </div>
+
+        {navBody()}
+
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--hairline)] p-4">
           <div className="flex min-w-0 items-center gap-2.5">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--sage)] text-xs font-extrabold text-[var(--forest)]">
-              {user?.email ? user.email[0].toUpperCase() : "G"}
+              {initial}
             </div>
             <div className="min-w-0">
-              <p className="truncate text-xs font-bold text-[var(--ink)]">
-                {user?.email ? user.email.split("@")[0] : "Garage Admin"}
-              </p>
+              <p className="truncate text-xs font-bold text-[var(--ink)]">{displayName}</p>
               <p className="text-[11px] font-semibold capitalize text-[var(--ink-muted)]">
                 {(user?.role || "ADMIN").toLowerCase()}
               </p>
@@ -159,7 +250,7 @@ export function AppNav() {
           </div>
           <button
             onClick={logout}
-            className="rounded-full p-2 text-[var(--ink-muted)] transition-colors duration-150 ease-out hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)]"
+            className="rounded-full p-2 text-[var(--ink-muted)] transition-colors duration-150 ease-out hover:bg-[var(--surface-sunk)] hover:text-[var(--terracotta)]"
             aria-label="Log out"
           >
             <LogOut size={16} />
@@ -167,164 +258,104 @@ export function AppNav() {
         </div>
       </aside>
 
-      {/* ── Mobile floating pill ────────────────────────────────────────
-          Icon-only at rest; the current section expands to show its label,
-          so the pill stays compact and the active page is unmistakable. */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:hidden">
-        <div className="mx-auto flex max-w-md items-center gap-1 rounded-full bg-[var(--forest)] p-1.5 shadow-[var(--lift-3)]">
-          {MOBILE_PRIMARY.map((item) => {
-            const active = isActive(item.href);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-label={item.label}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "flex h-11 items-center justify-center gap-2 rounded-full",
-                  "transition-[background-color,color] duration-200 ease-out",
-                  active
-                    ? "flex-1 bg-[var(--ochre)] px-4 text-[var(--forest-deep)]"
-                    : "w-11 shrink-0 text-[var(--ink-on-dark-muted)] active:bg-white/10",
-                )}
-              >
-                <Icon size={19} strokeWidth={active ? 2.4 : 2} className="shrink-0" />
-                <AnimatePresence initial={false}>
-                  {active && (
-                    <motion.span
-                      initial={{ opacity: 0, width: 0 }}
-                      animate={{ opacity: 1, width: "auto" }}
-                      exit={{ opacity: 0, width: 0 }}
-                      transition={{ duration: 0.18, ease: [0.22, 0.9, 0.32, 1] }}
-                      className="overflow-hidden whitespace-nowrap text-[13px] font-extrabold"
-                    >
-                      {item.label}
-                    </motion.span>
-                  )}
-                </AnimatePresence>
-              </Link>
-            );
-          })}
-
-          <button
-            onClick={() => setShowMore(true)}
-            aria-label="More"
-            className={cn(
-              "flex h-11 items-center justify-center gap-2 rounded-full",
-              "transition-[background-color,color] duration-200 ease-out",
-              moreActive
-                ? "flex-1 bg-[var(--ochre)] px-4 text-[var(--forest-deep)]"
-                : "w-11 shrink-0 text-[var(--ink-on-dark-muted)] active:bg-white/10",
-            )}
-          >
-            <MoreHorizontal size={19} strokeWidth={moreActive ? 2.4 : 2} className="shrink-0" />
-            <AnimatePresence initial={false}>
-              {moreActive && (
-                <motion.span
-                  initial={{ opacity: 0, width: 0 }}
-                  animate={{ opacity: 1, width: "auto" }}
-                  exit={{ opacity: 0, width: 0 }}
-                  transition={{ duration: 0.18, ease: [0.22, 0.9, 0.32, 1] }}
-                  className="overflow-hidden whitespace-nowrap text-[13px] font-extrabold"
-                >
-                  More
-                </motion.span>
-              )}
-            </AnimatePresence>
-          </button>
+      {/* ── Mobile top bar ──────────────────────────────────────────── */}
+      <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-[var(--hairline)] bg-[var(--canvas)]/95 px-4 backdrop-blur-sm lg:hidden">
+        <button
+          ref={triggerRef}
+          onClick={() => setDrawerOpen(true)}
+          aria-label="Open navigation menu"
+          aria-expanded={drawerOpen}
+          aria-controls="app-drawer"
+          className="-ml-2 flex h-11 w-11 items-center justify-center rounded-full text-[var(--ink)] transition-colors duration-150 ease-out active:bg-[var(--surface-sunk)]"
+        >
+          <Menu size={22} />
+        </button>
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--forest)] text-[var(--ink-on-dark)]">
+            <Wrench size={14} />
+          </div>
+          <span className="truncate text-sm font-extrabold tracking-tight text-[var(--ink)]">
+            Garage Manager
+          </span>
         </div>
-      </nav>
+      </header>
 
-      {/* ── "More" drawer ───────────────────────────────────────────── */}
+      {/* ── Mobile drawer ───────────────────────────────────────────── */}
       <AnimatePresence>
-        {showMore && (
-          <div className="fixed inset-0 z-50 flex flex-col justify-end md:hidden">
+        {drawerOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.18 }}
-              className="absolute inset-0 bg-[var(--forest-deep)]/45"
-              onClick={() => setShowMore(false)}
+              className="absolute inset-0 bg-[var(--forest-deep)]/50"
+              onClick={closeDrawer}
             />
             <motion.div
-              initial={{ y: 40, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 30, opacity: 0 }}
-              transition={{ type: "spring", damping: 30, stiffness: 380 }}
-              className="relative z-10 space-y-4 rounded-t-[var(--r-panel)] bg-[var(--surface-bright)] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-[var(--lift-3)]"
+              ref={drawerRef}
+              id="app-drawer"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Navigation"
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "spring", damping: 32, stiffness: 380 }}
+              className="absolute inset-y-0 left-0 flex w-[86%] max-w-[20rem] flex-col bg-[var(--surface)] shadow-[var(--lift-3)]"
             >
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-extrabold text-[var(--ink)]">More</h2>
-                <button
-                  onClick={() => setShowMore(false)}
-                  className="rounded-full p-2 text-[var(--ink-muted)] transition-colors duration-150 ease-out hover:bg-[var(--surface-sunk)]"
-                  aria-label="Close"
-                >
-                  <X size={18} />
-                </button>
+              {/* Coloured header: wordmark and the way out along the top,
+                  then who is signed in, centred. The curved bottom edge is
+                  what makes it read as a header rather than a coloured band. */}
+              <div className="shrink-0 rounded-b-[2rem] bg-[var(--forest)] px-5 pb-7 pt-[calc(1rem+env(safe-area-inset-top))] text-[var(--ink-on-dark)]">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/15">
+                      <Wrench size={14} />
+                    </div>
+                    <span className="truncate text-sm font-extrabold tracking-tight">
+                      Garage Manager
+                    </span>
+                  </div>
+                  <button
+                    onClick={closeDrawer}
+                    aria-label="Close navigation menu"
+                    className="-mr-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors duration-150 ease-out active:bg-white/15"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="mt-5 flex flex-col items-center text-center">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--sage)] text-xl font-extrabold text-[var(--forest)]">
+                    {initial}
+                  </div>
+                  <p className="mt-3 max-w-full truncate text-lg font-extrabold tracking-tight">
+                    {displayName}
+                  </p>
+                  <p className="max-w-full truncate text-xs font-semibold text-[var(--ink-on-dark-muted)]">
+                    {user?.email ?? "Signed in"}
+                  </p>
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { href: "/invoices", label: "Invoices", icon: FileText },
-                  { href: "/inventory/categories", label: "Categories", icon: Layers },
-                  { href: "/inventory/suppliers", label: "Suppliers", icon: Truck },
-                  { href: "/settings", label: "Settings", icon: Settings },
-                ].map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setShowMore(false)}
-                    className="flex items-center gap-3 rounded-[var(--r-tile)] bg-[var(--surface)] p-4 text-sm font-bold text-[var(--ink)] transition-colors duration-150 ease-out hover:bg-[var(--surface-sunk)]"
-                  >
-                    <item.icon size={18} className="text-[var(--ink-muted)]" />
-                    <span>{item.label}</span>
-                  </Link>
-                ))}
-                {isSuperadmin && (
-                  <Link
-                    href="/superadmin"
-                    onClick={() => setShowMore(false)}
-                    className="col-span-2 flex items-center gap-3 rounded-[var(--r-tile)] bg-[var(--terracotta)] p-4 text-sm font-bold text-[#fdf6f2] transition-colors duration-150 ease-out hover:bg-[var(--terracotta-hover)]"
-                  >
-                    <Shield size={18} />
-                    <span>Superadmin Control</span>
-                  </Link>
-                )}
-              </div>
+              {navBody(() => setDrawerOpen(false))}
 
-              <div className="flex items-center justify-between gap-3 border-t border-[var(--hairline)] pt-4">
-                <span className="truncate text-xs font-semibold text-[var(--ink-muted)]">{user?.email}</span>
+              {/* Sign out sits apart from navigation on purpose — it is
+                  destructive and should never be a mis-tap away from a link. */}
+              <div className="shrink-0 border-t border-[var(--hairline)] p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
                 <button
-                  onClick={() => {
-                    setShowMore(false);
-                    logout();
-                  }}
-                  className="flex shrink-0 items-center gap-1.5 text-xs font-extrabold text-[var(--terracotta)]"
+                  onClick={logout}
+                  className="flex w-full items-center gap-3 rounded-[var(--r-control)] px-4 py-3 text-sm font-bold text-[var(--terracotta)] transition-colors duration-150 ease-out active:bg-[var(--terracotta)]/10"
                 >
-                  <LogOut size={14} />
-                  <span>Log out</span>
+                  <LogOut size={18} />
+                  <span>Sign out</span>
                 </button>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
-
-      {/* ── Floating create button ──────────────────────────────────────
-          Sits clear of the nav pill, and only on routes that have no
-          bottom action bar of their own. */}
-      {fab && (
-        <Link
-          href={fab.href}
-          aria-label={fab.label}
-          className="fixed right-4 bottom-[calc(var(--nav-inset)+0.75rem)] z-40 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--terracotta)] text-[#fdf6f2] shadow-[var(--lift-3)] transition-[background-color,scale] duration-150 ease-out active:scale-90 md:hidden"
-        >
-          <Plus size={24} strokeWidth={2.5} />
-        </Link>
-      )}
-    </div>
+    </>
   );
 }

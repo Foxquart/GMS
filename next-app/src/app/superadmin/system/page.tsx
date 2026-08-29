@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Code, Cpu, HardDrive, Server, Terminal } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, errorMessage, errorReference } from "@/lib/api";
 import {
   BentoGrid,
   Card,
@@ -36,7 +36,8 @@ export default function SuperadminSystemPage() {
         {header}
         <ErrorState
           title="Couldn't read the runtime"
-          message={(error as Error)?.message ?? "The system endpoint didn't respond."}
+          message={errorMessage(error)}
+          reference={errorReference(error)}
           onRetry={() => refetch()}
         />
       </div>

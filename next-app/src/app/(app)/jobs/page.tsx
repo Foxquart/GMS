@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Plus, Search, FileText } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, errorMessage, errorReference } from "@/lib/api";
 import {
   currency,
   formatDate,
@@ -13,7 +13,15 @@ import {
   vehicleTypeLabel,
   invoiceStatusLabel,
 } from "@/lib/format";
-import { Badge, Input, Button, EmptyState, Skeleton, ErrorState } from "@/components/ui";
+import {
+  Badge,
+  Input,
+  Button,
+  EmptyState,
+  Skeleton,
+  ErrorState,
+  StickyControls,
+} from "@/components/ui";
 import { SpotTools, VEHICLE_SPOT } from "@/components/illustrations";
 import { cn } from "@/lib/cn";
 
@@ -80,78 +88,84 @@ export default function JobsPage() {
 
   return (
     <div className="space-y-5">
-      <header className="flex items-end justify-between gap-3">
-        <div className="min-w-0">
-          <p className="tile-label text-[var(--ink-label)]">Workshop</p>
-          <h1 className="mt-1.5 text-[clamp(1.75rem,8vw,2.25rem)] font-extrabold leading-none tracking-tight text-[var(--ink)]">
-            Service jobs
-          </h1>
-          <p className="mt-2 text-sm font-semibold text-[var(--ink-muted)]">
-            Everything on the floor, grouped by the day it came in.
-          </p>
-        </div>
-        <Link href="/jobs/new" className="hidden shrink-0 md:inline-flex">
-          <Button>
-            <Plus size={18} /> New job
+      {/* Pinned chrome: title, "New job", search and the status tabs. The day
+          groups scroll underneath. The strapline is the one line that would
+          push this past a third of a 360x640 phone, so it appears from lg,
+          where the mobile top bar is gone and there is room for it. */}
+      <StickyControls className="space-y-2.5">
+        <header className="flex items-end justify-between gap-3">
+          <div className="min-w-0">
+            <p className="tile-label text-[var(--ink-label)]">Workshop</p>
+            <h1 className="mt-1 text-[clamp(1.5rem,6vw,2.25rem)] font-extrabold leading-none tracking-tight text-[var(--ink)]">
+              Service jobs
+            </h1>
+            <p className="mt-2 hidden text-sm font-semibold text-[var(--ink-muted)] lg:block">
+              Everything on the floor, grouped by the day it came in.
+            </p>
+          </div>
+          <Link href="/jobs/new" className="shrink-0">
+            <Button>
+              <Plus size={18} /> New job
+            </Button>
+          </Link>
+        </header>
+
+        <div className="flex gap-2.5">
+          <div className="relative min-w-0 flex-1">
+            <Search
+              size={16}
+              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--ink-label)]"
+            />
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Customer or job number"
+              className="pl-10"
+              onKeyDown={(e) => e.key === "Enter" && setSearch(q)}
+              aria-label="Search jobs"
+            />
+          </div>
+          <Button variant="secondary" onClick={() => setSearch(q)}>
+            Search
           </Button>
-        </Link>
-      </header>
-
-      {/* ── Search ───────────────────────────────────────────────────── */}
-      <div className="flex gap-2.5">
-        <div className="relative min-w-0 flex-1">
-          <Search
-            size={16}
-            className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--ink-label)]"
-          />
-          <Input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Customer or job number"
-            className="pl-10"
-            onKeyDown={(e) => e.key === "Enter" && setSearch(q)}
-            aria-label="Search jobs"
-          />
         </div>
-        <Button variant="secondary" onClick={() => setSearch(q)}>
-          Search
-        </Button>
-      </div>
 
-      {/* ── Status filter ────────────────────────────────────────────── */}
-      <div
-        role="tablist"
-        aria-label="Filter jobs by status"
-        className="flex select-none rounded-full bg-[var(--surface-sunk)] p-1"
-      >
-        {FILTERS.map((f) => {
-          const active = status === f;
-          return (
-            <button
-              key={f}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setStatus(f)}
-              className={cn(
-                "relative isolate flex-1 cursor-pointer rounded-full px-2 py-2 text-xs font-extrabold",
-                "transition-[color] duration-150 ease-out",
-                active ? "text-[var(--ink-on-dark)]" : "text-[var(--ink-muted)] hover:text-[var(--ink)]",
-              )}
-            >
-              {active && (
-                <motion.span
-                  layoutId="jobs-filter-pill"
-                  aria-hidden="true"
-                  className="absolute inset-0 -z-10 rounded-full bg-[var(--forest)]"
-                  transition={{ type: "spring", stiffness: 420, damping: 36 }}
-                />
-              )}
-              {FILTER_LABEL[f]}
-            </button>
-          );
-        })}
-      </div>
+        <div
+          role="tablist"
+          aria-label="Filter jobs by status"
+          className="flex select-none rounded-full bg-[var(--surface-sunk)] p-1"
+        >
+          {FILTERS.map((f) => {
+            const active = status === f;
+            return (
+              <button
+                key={f}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setStatus(f)}
+                className={cn(
+                  "relative isolate flex-1 cursor-pointer rounded-full px-2 py-2 text-xs font-extrabold",
+                  "transition-[color] duration-150 ease-out",
+                  active
+                    ? "text-[var(--ink-on-dark)]"
+                    : "text-[var(--ink-muted)] hover:text-[var(--ink)]",
+                )}
+              >
+                {active && (
+                  <motion.span
+                    layoutId="jobs-filter-pill"
+                    aria-hidden="true"
+                    className="absolute inset-0 -z-10 rounded-full bg-[var(--forest)]"
+                    transition={{ type: "spring", stiffness: 420, damping: 36 }}
+                  />
+                )}
+                {FILTER_LABEL[f]}
+              </button>
+            );
+          })}
+        </div>
+      </StickyControls>
 
       {/* ── The week ─────────────────────────────────────────────────── */}
       {isLoading ? (
@@ -168,7 +182,8 @@ export default function JobsPage() {
       ) : isError ? (
         <ErrorState
           title="Couldn't load your jobs"
-          message={(error as Error)?.message}
+          message={errorMessage(error)}
+          reference={errorReference(error)}
           onRetry={() => refetch()}
         />
       ) : !jobs?.length ? (
@@ -246,8 +261,12 @@ export default function JobsPage() {
                         {jobStatusLabel(job.status)}
                       </Badge>
                       {job.invoiceId && (
-                        <Badge color={invoiceBadgeColor(job.invoiceStatus)}>
-                          <FileText size={11} /> {invoiceStatusLabel(job.invoiceStatus)}
+                        <Badge
+                          color={invoiceBadgeColor(job.invoiceStatus)}
+                          className="px-2 text-[10px] tracking-normal"
+                        >
+                          <FileText size={10} />
+                          {invoiceStatusLabel(job.invoiceStatus)}
                         </Badge>
                       )}
                       {Number(job.total) > 0 && (

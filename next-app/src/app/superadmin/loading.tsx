@@ -16,9 +16,12 @@ export default function SuperadminOverviewLoading() {
         <Skeleton className="h-28" />
         <Skeleton className="h-28" />
       </div>
+      {/* The activity panel no longer scrolls inside itself, so it is the
+          taller of the pair and the row stretches the checks card to match
+          it — the shell has to say the same thing or the card grows on paint. */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <Skeleton className="h-56 rounded-[var(--r-card)]" />
-        <Skeleton className="h-56 rounded-[var(--r-panel)]" />
+        <Skeleton className="h-52 rounded-[var(--r-card)] lg:h-[26rem]" />
+        <Skeleton className="h-[26rem] rounded-[var(--r-panel)]" />
       </div>
     </div>
   );

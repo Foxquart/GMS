@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { handleError } from "@/server/lib/http";
+import { dbReady } from "@/server/db/connection";
 import { verifyShareToken } from "@/server/lib/share-token";
 import { buildInvoicePdf } from "@/server/services/pdf.service";
 import { getInvoice } from "@/server/services/invoice.service";
@@ -9,6 +10,9 @@ export async function GET(
   ctx: { params: Promise<{ token: string }> },
 ) {
   try {
+    // The one public route that reads the database, so it gates itself rather
+    // than relying on an auth check it does not have.
+    await dbReady();
     const { token } = await ctx.params;
     const payload = await verifyShareToken(token);
     if (!payload) {

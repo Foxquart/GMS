@@ -3,6 +3,10 @@ import { Skeleton } from "@/components/ui";
 /**
  * Invoice shell: hero with the total, the four fact tiles, the line-item
  * card and the balance block — the loaded page's exact rhythm.
+ *
+ * No band for the condensed record bar: that bar sits in a zero-height sticky
+ * rail and only floats in once the hero has scrolled away, so it reserves no
+ * space here or on the loaded page.
  */
 export default function InvoiceDetailLoading() {
   return (

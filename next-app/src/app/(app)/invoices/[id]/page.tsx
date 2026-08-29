@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -18,7 +18,7 @@ import {
   User,
   Wrench,
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { ApiClientError, api, errorMessage, errorReference } from "@/lib/api";
 import {
   Badge,
   BentoGrid,
@@ -28,6 +28,7 @@ import {
   ErrorState,
   Field,
   HeroPanel,
+  InlineError,
   Input,
   ResultPanel,
   SectionHeader,
@@ -36,6 +37,7 @@ import {
   Skeleton,
   SpecTile,
   Tile,
+  RecordBar,
 } from "@/components/ui";
 import { SpotClipboard } from "@/components/illustrations";
 import { cn } from "@/lib/cn";
@@ -71,10 +73,32 @@ function InvoiceSkeleton() {
   );
 }
 
+/**
+ * The condensed record bar.
+ *
+ * The hero owns the back control, and on an invoice with a long list of line
+ * items it scrolls out of reach — leaving no way back but the browser gesture.
+ * This brings that control back, with the invoice number and what is still
+ * owed on it.
+ *
+ * It lives in a zero-height sticky rail, so it costs nothing until it is
+ * needed: no space is reserved while the hero is on screen, and the bar floats
+ * over the page only once the hero has passed. `top-14` clears the mobile top
+ * bar, `z-20` keeps it under that bar (z-30), the sidebar (z-40) and sheets
+ * (z-50). The negative margins let the fill bleed to the page gutters so rows
+ * do not show through at the edges as they pass under.
+ */
 export default function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const qc = useQueryClient();
+
+  // The hero carries the back control until it scrolls away; from there the
+  // condensed bar takes over. A callback ref (not useRef) because the hero
+  // only mounts once the invoice has loaded, and the observer has to wait
+  // for it.
+  const [heroEl, setHeroEl] = useState<HTMLDivElement | null>(null);
+  const [heroGone, setHeroGone] = useState(false);
 
   const [payOpen, setPayOpen] = useState(false);
   const [amount, setAmount] = useState("");
@@ -82,15 +106,33 @@ export default function InvoiceDetailPage() {
   // Set when a payment clears the balance — the sheet then shows the
   // terminal ResultPanel instead of the form.
   const [settledWith, setSettledWith] = useState<number | null>(null);
+  // A failed payment is reported inside the sheet, beside the button that
+  // failed, rather than in a toast that disappears while the sheet stays open.
+  const [payError, setPayError] = useState<unknown>(null);
+
+  // The bar is revealed at the moment its rail pins, so it never floats loose
+  // in the gap: the mobile top bar is 56px and the rail sits 20px (space-y-5)
+  // below the hero, which puts the meeting point at the hero's bottom edge
+  // crossing 36px. On lg there is no top bar and it arrives those 36px of
+  // scroll early — less than one flick.
+  useEffect(() => {
+    if (!heroEl || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([entry]) => setHeroGone(!entry.isIntersecting), {
+      rootMargin: "-36px 0px 0px 0px",
+    });
+    io.observe(heroEl);
+    return () => io.disconnect();
+  }, [heroEl]);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["invoice", id],
     queryFn: () => api<any>(`/api/invoices/${id}`),
   });
 
+  // No onError here: shareWhatsApp awaits the mutation and reports the failure
+  // itself, and two toasts for one failure reads as two separate faults.
   const share = useMutation({
     mutationFn: () => api<{ url: string | null }>(`/api/invoices/${id}/share`),
-    onError: (e: any) => toast.error(e.message),
   });
 
   const shareWhatsApp = async () => {
@@ -105,8 +147,10 @@ export default function InvoiceDetailPage() {
       const message = `Hello ${customer?.name ?? ""}, your invoice ${invoice.invoiceNumber} for ${currency(invoice.total)} is ready. You can view or download it here: ${url}`;
       const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
       window.open(waUrl, "_blank");
-    } catch (err: any) {
-      toast.error(err.message ?? "Could not create share link");
+    } catch (err) {
+      // The share button lives in the hero with no surface of its own, so a
+      // toast is the right home for this one.
+      toast.error(errorMessage(err));
     }
   };
 
@@ -129,12 +173,24 @@ export default function InvoiceDetailPage() {
         setPayOpen(false);
       }
       setAmount("");
+      setPayError(null);
       qc.invalidateQueries({ queryKey: ["invoice", id] });
       qc.invalidateQueries({ queryKey: ["invoices"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (err) => setPayError(err),
   });
+
+  // 409s here all mean the same thing: this screen is out of date with the
+  // invoice (already settled, cancelled, or the balance moved under us). The
+  // useful next step is pulling the current figures, not retyping the amount.
+  const payConflict = payError instanceof ApiClientError && payError.status === 409;
+
+  const refreshInvoice = () => {
+    setPayError(null);
+    setAmount("");
+    refetch();
+  };
 
   const downloadPdf = () => {
     window.open(`/api/invoices/${id}/pdf`, "_blank");
@@ -143,25 +199,23 @@ export default function InvoiceDetailPage() {
   const openPaymentSheet = () => {
     setSettledWith(null);
     setAmount("");
+    setPayError(null);
     setPayOpen(true);
+  };
+
+  const closePaymentSheet = () => {
+    setPayOpen(false);
+    setPayError(null);
   };
 
   if (isLoading) return <InvoiceSkeleton />;
 
-  if (isError) {
-    return (
-      <div className="space-y-5">
-        <Skeleton className="h-[212px] rounded-[var(--r-panel)]" />
-        <ErrorState
-          title="Couldn't load this invoice"
-          message={(error as Error)?.message}
-          onRetry={() => refetch()}
-        />
-      </div>
-    );
-  }
+  // A 404 means the record is gone, not that loading failed — say so plainly
+  // and point back at the book instead of showing an error panel.
+  const missing =
+    (isError && error instanceof ApiClientError && error.status === 404) || (!isError && !data);
 
-  if (!data) {
+  if (missing) {
     return (
       <EmptyState
         title="Invoice not found"
@@ -176,6 +230,20 @@ export default function InvoiceDetailPage() {
     );
   }
 
+  if (isError || !data) {
+    return (
+      <div className="space-y-5">
+        <Skeleton className="h-[212px] rounded-[var(--r-panel)]" />
+        <ErrorState
+          title="Couldn't load this invoice"
+          message={errorMessage(error)}
+          reference={errorReference(error)}
+          onRetry={() => refetch()}
+        />
+      </div>
+    );
+  }
+
   const { invoice, customer, vehicle, job, items, payments, business } = data;
 
   const due = Number(invoice.dueAmount ?? 0);
@@ -187,45 +255,68 @@ export default function InvoiceDetailPage() {
 
   return (
     <div className="space-y-5">
-      <HeroPanel
-        tone="forest"
-        eyebrow={business?.businessName ?? "Invoice"}
-        title={invoice.invoiceNumber}
-        subtitle={`${customer?.name ?? "Customer"} · ${formatDate(invoice.createdAt)}`}
-        leading={
-          <CircleButton onClick={() => router.back()} aria-label="Back">
-            <ArrowLeft size={18} />
-          </CircleButton>
-        }
-        trailing={
-          <>
-            <CircleButton onClick={downloadPdf} aria-label="Download PDF" title="Download PDF">
-              <Download size={18} />
+      <div ref={setHeroEl}>
+        <HeroPanel
+          tone="forest"
+          eyebrow={business?.businessName ?? "Invoice"}
+          title={invoice.invoiceNumber}
+          subtitle={`${customer?.name ?? "Customer"} · ${formatDate(invoice.createdAt)}`}
+          leading={
+            <CircleButton onClick={() => router.back()} aria-label="Back">
+              <ArrowLeft size={18} />
             </CircleButton>
-            <CircleButton
-              onClick={shareWhatsApp}
-              disabled={share.isPending}
-              aria-label="Share on WhatsApp"
-              title="Share on WhatsApp"
-              className="disabled:opacity-45"
-            >
-              <MessageCircle size={18} />
-            </CircleButton>
-          </>
-        }
-      >
-        <div className="mt-5 flex flex-wrap items-end justify-between gap-3 border-t border-[var(--ink-on-dark)]/15 pt-4">
-          <div className="min-w-0">
-            <p className="tile-label text-[var(--ink-on-dark-muted)]">Invoice total</p>
-            <p className="numeral tabular mt-1.5 text-[clamp(1.75rem,8vw,2.75rem)]">
-              {currency(invoice.total)}
+          }
+          trailing={
+            <>
+              <CircleButton onClick={downloadPdf} aria-label="Download PDF" title="Download PDF">
+                <Download size={18} />
+              </CircleButton>
+              <CircleButton
+                onClick={shareWhatsApp}
+                disabled={share.isPending}
+                aria-label="Share on WhatsApp"
+                title="Share on WhatsApp"
+                className="disabled:opacity-45"
+              >
+                <MessageCircle size={18} />
+              </CircleButton>
+            </>
+          }
+        >
+          <div className="mt-5 flex flex-wrap items-end justify-between gap-3 border-t border-[var(--ink-on-dark)]/15 pt-4">
+            <div className="min-w-0">
+              <p className="tile-label text-[var(--ink-on-dark-muted)]">Invoice total</p>
+              <p className="numeral tabular mt-1.5 text-[clamp(1.75rem,8vw,2.75rem)]">
+                {currency(invoice.total)}
+              </p>
+            </div>
+            <p className="tile-label shrink-0 text-[var(--ink-on-dark-muted)]">
+              {invoiceStatusLabel(invoice.status)}
             </p>
           </div>
-          <p className="tile-label shrink-0 text-[var(--ink-on-dark-muted)]">
-            {invoiceStatusLabel(invoice.status)}
-          </p>
-        </div>
-      </HeroPanel>
+        </HeroPanel>
+      </div>
+
+      {/* ── Condensed record bar — arrives when the hero leaves ─────── */}
+      <RecordBar
+        shown={heroGone}
+        onBack={() => router.back()}
+        title={invoice.invoiceNumber}
+        meta={customer?.name ?? "Customer"}
+        trailing={
+          <div className="shrink-0 text-right">
+            <p className="tile-label text-[var(--ink-label)]">{owed ? "Due" : "Total"}</p>
+            <p
+              className={cn(
+                "tabular text-sm font-extrabold",
+                owed ? "text-[var(--terracotta-hover)]" : "text-[var(--ink)]",
+              )}
+            >
+              {currency(owed ? due : total)}
+            </p>
+          </div>
+        }
+      />
 
       <BentoGrid className="sm:grid-cols-4">
         <SpecTile
@@ -450,7 +541,7 @@ export default function InvoiceDetailPage() {
 
       <Sheet
         open={payOpen}
-        onClose={() => setPayOpen(false)}
+        onClose={closePaymentSheet}
         title={settledWith !== null ? "Invoice settled" : "Record payment"}
       >
         {settledWith !== null ? (
@@ -484,7 +575,10 @@ export default function InvoiceDetailPage() {
                 min={1}
                 max={due}
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => {
+                  setAmount(e.target.value);
+                  setPayError(null);
+                }}
                 placeholder="0.00"
                 inputMode="decimal"
                 autoFocus
@@ -493,7 +587,10 @@ export default function InvoiceDetailPage() {
 
             <button
               type="button"
-              onClick={() => setAmount(String(due))}
+              onClick={() => {
+                setAmount(String(due));
+                setPayError(null);
+              }}
               className={cn(
                 "inline-flex h-8 items-center rounded-full border border-[var(--hairline-strong)] px-3.5",
                 "bg-[var(--surface-bright)] text-xs font-bold text-[var(--ink-muted)]",
@@ -505,7 +602,13 @@ export default function InvoiceDetailPage() {
             </button>
 
             <Field label="Payment method">
-              <Select value={method} onChange={(e) => setMethod(e.target.value)}>
+              <Select
+                value={method}
+                onChange={(e) => {
+                  setMethod(e.target.value);
+                  setPayError(null);
+                }}
+              >
                 {PAYMENT_METHODS.map((m) => (
                   <option key={m} value={m}>
                     {paymentMethodLabel(m)}
@@ -513,6 +616,20 @@ export default function InvoiceDetailPage() {
                 ))}
               </Select>
             </Field>
+
+            {payError != null && (
+              <div className="space-y-2.5">
+                <InlineError
+                  message={errorMessage(payError)}
+                  reference={errorReference(payError)}
+                />
+                {payConflict && (
+                  <Button variant="outline" size="sm" onClick={refreshInvoice}>
+                    Refresh this invoice
+                  </Button>
+                )}
+              </div>
+            )}
 
             <Button
               size="lg"

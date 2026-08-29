@@ -110,12 +110,12 @@ export async function completeJob(input: {
       .where(eq(jobs.id, input.jobId))
       .for("update")
       .limit(1);
-    if (!job) throw new ApiError(404, "Job not found");
+    if (!job) throw new ApiError(404, "Job not found", "NOT_FOUND");
     if (job.status === "COMPLETED") {
       throw new ApiError(409, "This job is already completed.", "JOB_ALREADY_COMPLETED");
     }
     if (job.status === "CANCELLED") {
-      throw new ApiError(409, "This job was cancelled and cannot be completed.");
+      throw new ApiError(409, "This job was cancelled and cannot be completed.", "JOB_CANCELLED");
     }
 
     const partRows = await tx
@@ -260,7 +260,7 @@ export async function getInvoice(id: string) {
     .from(invoices)
     .where(eq(invoices.id, id))
     .limit(1);
-  if (!invoice) throw new ApiError(404, "Invoice not found");
+  if (!invoice) throw new ApiError(404, "Invoice not found", "NOT_FOUND");
 
   const [customer] = await db
     .select()
@@ -316,18 +316,19 @@ export async function recordPayment(input: {
       .where(eq(invoices.id, input.invoiceId))
       .for("update")
       .limit(1);
-    if (!invoice) throw new ApiError(404, "Invoice not found");
+    if (!invoice) throw new ApiError(404, "Invoice not found", "NOT_FOUND");
     if (invoice.status === "CANCELLED") {
-      throw new ApiError(409, "Cannot add a payment to a cancelled invoice.");
+      throw new ApiError(409, "Cannot add a payment to a cancelled invoice.", "INVOICE_CANCELLED");
     }
     if (invoice.status === "PAID") {
-      throw new ApiError(409, "This invoice is already fully paid.");
+      throw new ApiError(409, "This invoice is already fully paid.", "INVOICE_ALREADY_PAID");
     }
     const outstanding = Number(invoice.dueAmount);
     if (input.amount > outstanding) {
       throw new ApiError(
         409,
         `Payment of ₹${input.amount} exceeds the outstanding balance of ₹${outstanding}.`,
+        "PAYMENT_EXCEEDS_BALANCE",
       );
     }
 

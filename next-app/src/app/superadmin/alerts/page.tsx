@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, RefreshCw, ShieldAlert } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, errorMessage, errorReference } from "@/lib/api";
 import {
   Badge,
   BentoGrid,
@@ -12,6 +12,7 @@ import {
   ErrorState,
   Skeleton,
   StatTile,
+  StickyControls,
 } from "@/components/ui";
 import { SpotStamp } from "@/components/illustrations";
 import { formatWhen, statusBadgeColor } from "../_status";
@@ -27,31 +28,36 @@ export default function SuperadminAlertsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-xl font-extrabold tracking-tight text-[var(--ink)] sm:text-2xl">
+      {/* Pinned under the 64px operator bar: the page's identity and the
+          refresh that re-reads it. The explanation and the two count tiles
+          scroll away — on a long alert history the rows are the point. */}
+      <StickyControls className="top-16 lg:top-16">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="truncate text-xl font-extrabold tracking-tight text-[var(--ink)] sm:text-2xl">
             Alerts
           </h1>
-          <p className="mt-1 text-sm text-[var(--ink-muted)]">
-            Raised automatically when a health check crosses its threshold.
-          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isRefetching}
+            className="shrink-0"
+          >
+            <RefreshCw size={14} className={isRefetching ? "gear-spin" : undefined} />
+            {isRefetching ? "Refreshing…" : "Refresh"}
+          </Button>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isRefetching}
-          className="self-start"
-        >
-          <RefreshCw size={14} className={isRefetching ? "gear-spin" : undefined} />
-          {isRefetching ? "Refreshing…" : "Refresh"}
-        </Button>
-      </div>
+      </StickyControls>
+
+      <p className="text-sm text-[var(--ink-muted)]">
+        Raised automatically when a health check crosses its threshold.
+      </p>
 
       {isError && !alerts ? (
         <ErrorState
           title="Couldn't load alerts"
-          message={(error as Error)?.message ?? "The alerts endpoint didn't respond."}
+          message={errorMessage(error)}
+          reference={errorReference(error)}
           onRetry={() => refetch()}
         />
       ) : isLoading ? (

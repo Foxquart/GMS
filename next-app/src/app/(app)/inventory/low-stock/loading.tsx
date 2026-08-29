@@ -1,9 +1,9 @@
-import { Skeleton, StickyControls } from "@/components/ui";
+import { BentoGrid, Skeleton, StickyControls } from "@/components/ui";
 
-/** Shell of the transfers page: pinned title bar, move panel, history rows. */
-export default function TransfersLoading() {
+/** Shell of the low-stock page: pinned title bar, strapline, counts, rows. */
+export default function LowStockLoading() {
   return (
-    <div className="mx-auto max-w-2xl space-y-5">
+    <div className="space-y-5">
       <StickyControls>
         <div className="flex items-center gap-3">
           <Skeleton className="h-10 w-10 rounded-full" />
@@ -14,12 +14,17 @@ export default function TransfersLoading() {
         </div>
       </StickyControls>
 
-      <Skeleton className="h-64 rounded-[var(--r-panel)]" />
+      <Skeleton className="h-4 w-64 rounded-full" />
 
-      <div className="space-y-2">
+      <BentoGrid>
+        <Skeleton className="h-32" />
+        <Skeleton className="h-32" />
+      </BentoGrid>
+
+      <div className="space-y-2.5">
         <Skeleton className="h-5 w-40 rounded-full" />
         {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-[72px]" />
+          <Skeleton key={i} className="h-[4.75rem]" />
         ))}
       </div>
     </div>

@@ -66,7 +66,7 @@ export async function getCategory(id: string) {
     .from(categories)
     .where(eq(categories.id, id))
     .limit(1);
-  if (!row) throw new ApiError(404, "Category not found");
+  if (!row) throw new ApiError(404, "Category not found", "NOT_FOUND");
   return { ...row, partsCount: Number(row.partsCount ?? 0) };
 }
 
@@ -113,7 +113,7 @@ export async function updateCategory(
     .from(categories)
     .where(eq(categories.id, id))
     .limit(1);
-  if (!existing) throw new ApiError(404, "Category not found");
+  if (!existing) throw new ApiError(404, "Category not found", "NOT_FOUND");
 
   const patch: Record<string, unknown> = { updatedAt: new Date() };
 
@@ -145,7 +145,7 @@ export async function deleteCategory(id: string, opts?: { force?: boolean }) {
     .from(categories)
     .where(eq(categories.id, id))
     .limit(1);
-  if (!existing) throw new ApiError(404, "Category not found");
+  if (!existing) throw new ApiError(404, "Category not found", "NOT_FOUND");
 
   const inUse = await countParts(id);
   if (inUse > 0 && !opts?.force) {

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, History, Package } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, errorMessage, errorReference } from "@/lib/api";
 import {
   Badge,
   CircleButton,
@@ -13,6 +13,7 @@ import {
   ErrorState,
   SectionHeader,
   Skeleton,
+  StickyControls,
 } from "@/components/ui";
 import { SpotTyre } from "@/components/illustrations";
 import { formatDateTime } from "@/lib/format";
@@ -52,17 +53,45 @@ export default function MovementsPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
-      <div className="flex items-center gap-3">
-        <CircleButton onDark={false} onClick={() => router.back()} aria-label="Back">
-          <ArrowLeft size={18} />
-        </CircleButton>
-        <div className="min-w-0">
-          <p className="tile-label text-[var(--ink-label)]">Inventory</p>
-          <h1 className="truncate text-2xl font-extrabold tracking-tight text-[var(--ink)]">
-            Stock movements
-          </h1>
+      {/* Title and the one control that changes the log stay put; the
+          sentence explaining what a movement is, and the “one part only”
+          notice, are read once and then scroll away. */}
+      <StickyControls className="space-y-3">
+        <div className="flex items-center gap-3">
+          <CircleButton onDark={false} onClick={() => router.back()} aria-label="Back">
+            <ArrowLeft size={18} />
+          </CircleButton>
+          <div className="min-w-0">
+            <p className="tile-label hidden text-[var(--ink-label)] sm:block">Inventory</p>
+            <h1 className="truncate text-xl font-extrabold tracking-tight text-[var(--ink)] sm:text-2xl">
+              Stock movements
+            </h1>
+          </div>
         </div>
-      </div>
+
+        <div className="isolate flex select-none gap-1 rounded-full bg-[var(--surface-sunk)] p-1">
+          {FILTERS.map((f) => {
+            const active = locationCode === f.value;
+            return (
+              <button
+                key={f.value || "ALL"}
+                type="button"
+                onClick={() => setLocationCode(f.value)}
+                aria-pressed={active}
+                className={cn(
+                  "min-h-11 flex-1 cursor-pointer rounded-full py-2.5 text-[11px] font-extrabold uppercase tracking-[0.1em]",
+                  "transition-[background-color,color] duration-150 ease-out",
+                  active
+                    ? "bg-[var(--forest)] text-[var(--ink-on-dark)]"
+                    : "text-[var(--ink-muted)] hover:text-[var(--ink)]",
+                )}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
+      </StickyControls>
 
       <p className="text-sm font-semibold text-[var(--ink-muted)]">
         Every stock-in, adjustment, transfer and job usage, newest first.
@@ -82,29 +111,6 @@ export default function MovementsPage() {
           </Link>
         </div>
       )}
-
-      <div className="isolate flex select-none gap-1 rounded-full bg-[var(--surface-sunk)] p-1">
-        {FILTERS.map((f) => {
-          const active = locationCode === f.value;
-          return (
-            <button
-              key={f.value || "ALL"}
-              type="button"
-              onClick={() => setLocationCode(f.value)}
-              aria-pressed={active}
-              className={cn(
-                "flex-1 cursor-pointer rounded-full py-2.5 text-[11px] font-extrabold uppercase tracking-[0.1em]",
-                "transition-[background-color,color] duration-150 ease-out",
-                active
-                  ? "bg-[var(--forest)] text-[var(--ink-on-dark)]"
-                  : "text-[var(--ink-muted)] hover:text-[var(--ink)]",
-              )}
-            >
-              {f.label}
-            </button>
-          );
-        })}
-      </div>
 
       <section>
         <SectionHeader
@@ -127,7 +133,9 @@ export default function MovementsPage() {
           </div>
         ) : isError ? (
           <ErrorState
-            message={(error as Error)?.message ?? "The movement log didn't load."}
+            title="Couldn't load the movement log"
+            message={errorMessage(error)}
+            reference={errorReference(error)}
             onRetry={() => refetch()}
           />
         ) : !movements?.length ? (

@@ -5,8 +5,16 @@ import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowLeft, ChevronDown, Package, Coins, Boxes, Plus, Trash2 } from "lucide-react";
-import { api } from "@/lib/api";
-import { Button, Input, Field, Textarea, CircleButton, SectionHeader } from "@/components/ui";
+import { api, errorMessage, errorReference } from "@/lib/api";
+import {
+  Button,
+  CircleButton,
+  Field,
+  InlineError,
+  Input,
+  SectionHeader,
+  Textarea,
+} from "@/components/ui";
 import { AnimatedDropdown } from "@/components/animated-dropdown";
 import { cn } from "@/lib/cn";
 
@@ -28,6 +36,11 @@ export default function NewPartPage() {
   const [showMore, setShowMore] = useState(false);
   // Open-ended spec sheet — a workshop tracks different things per part.
   const [attributes, setAttributes] = useState<{ label: string; value: string }[]>([]);
+  const [formError, setFormError] = useState<{ message: string; reference?: string } | null>(null);
+
+  // Any edit anywhere in the form answers the last failure, so it is cleared
+  // from the form's own onChange rather than from a dozen field handlers.
+  const clearFormError = () => setFormError((prev) => (prev ? null : prev));
 
   const setAttribute = (i: number, patch: Partial<{ label: string; value: string }>) =>
     setAttributes((rows) => rows.map((r, n) => (n === i ? { ...r, ...patch } : r)));
@@ -68,7 +81,11 @@ export default function NewPartPage() {
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       router.push(`/inventory/parts/${p.id}`);
     },
-    onError: (e: any) => toast.error(e.message),
+    // The form the person filled in is still on screen. The error belongs
+    // beside the button they pressed, not in a toast that slides away with
+    // everything they typed still unsaved.
+    onError: (err) =>
+      setFormError({ message: errorMessage(err), reference: errorReference(err) }),
   });
 
   return (
@@ -86,9 +103,14 @@ export default function NewPartPage() {
       </div>
 
       <form
+        onChange={clearFormError}
         onSubmit={(e) => {
           e.preventDefault();
-          if (!name.trim()) return toast.error("Part name is required");
+          if (!name.trim()) {
+            setFormError({ message: "Give the part a name before saving it." });
+            return;
+          }
+          setFormError(null);
           create.mutate();
         }}
         className="space-y-5"
@@ -306,6 +328,17 @@ export default function NewPartPage() {
           </div>
         </section>
 
+
+        {/* Deliberately not a pinned bottom bar. The failure from the last
+            attempt has to be beside the button that caused it, and pinning
+            the button would leave that error scrolled away up the form; a
+            second floating bar would also stack over the global nav pill and
+            fight the on-screen keyboard while the fields are being typed
+            into. The form is three short sections with the rarely-needed
+            fields already collapsed — reaching the end is the task ending. */}
+        {formError && (
+          <InlineError message={formError.message} reference={formError.reference} />
+        )}
 
         <Button type="submit" size="lg" className="w-full" disabled={create.isPending}>
           {create.isPending ? "Adding part…" : "Add part"}

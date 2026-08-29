@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Activity, Database, RefreshCw, Server } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, errorMessage, errorReference } from "@/lib/api";
 import {
   Badge,
   BentoGrid,
@@ -53,7 +53,8 @@ export default function SuperadminHealthPage() {
         {header}
         <ErrorState
           title="The benchmark didn't complete"
-          message={(error as Error)?.message ?? "The health endpoint didn't respond."}
+          message={errorMessage(error)}
+          reference={errorReference(error)}
           onRetry={() => refetch()}
         />
       </div>

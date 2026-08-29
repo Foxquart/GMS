@@ -17,7 +17,7 @@ import {
   ReceiptText,
   CircleCheckBig,
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, errorMessage, errorReference } from "@/lib/api";
 import { currency, formatDate, invoiceStatusLabel } from "@/lib/format";
 import {
   Badge,
@@ -132,11 +132,16 @@ export default function DashboardPage() {
       chip: "bg-[var(--sage)] text-[var(--forest)]",
     },
     {
-      // Unpaid credit across every ISSUED / PARTIALLY_PAID invoice.
+      // Unpaid credit across every ISSUED / PARTIALLY_PAID invoice. Unlike
+      // every other row here this is a running balance, not a flow, so it is
+      // deliberately NOT scoped to the selected period — money owed does not
+      // stop being owed because you switched the tab to Today. Tagged so the
+      // figure cannot be misread as "owed today".
       label: "Outstanding credit",
       value: currency(report?.outstanding),
       icon: HandCoins,
       chip: "bg-[var(--terracotta)]/14 text-[var(--terracotta-hover)]",
+      allTime: true,
     },
     {
       label: "Jobs completed",
@@ -188,13 +193,26 @@ export default function DashboardPage() {
         {header}
         <ErrorState
           title="Couldn't load the dashboard"
-          message={(error as Error)?.message}
+          message={errorMessage(error)}
+          reference={errorReference(error)}
           onRetry={() => refetch()}
         />
       </div>
     );
   }
 
+  // Nothing on this page is pinned, deliberately. The list pages pin their
+  // search and filters because those controls govern an unbounded list
+  // scrolling beneath them — the dashboard has no such relationship. The
+  // greeting is read once, so pinning it would spend a fifth of a 360x640
+  // phone on a line nobody re-reads, and the bento underneath is the whole
+  // point of the screen. The one live control, the period tabs, sits 52px
+  // above the card it drives and the entire report section is ~400px, well
+  // inside the 584px content area of the smallest phone we target: if you can
+  // read the six figures you can already reach the tabs. Pinning them would
+  // also lay a full-bleed divider band across the middle of the page and make
+  // the four SectionHeaders below it read as subordinate to the report. The
+  // mobile top bar stays the only fixed chrome here.
   return (
     <div className="space-y-6">
       {header}
@@ -301,7 +319,8 @@ export default function DashboardPage() {
         ) : reportIsError ? (
           <ErrorState
             title="Couldn't load this report"
-            message={(reportError as Error)?.message}
+            message={errorMessage(reportError)}
+            reference={errorReference(reportError)}
             onRetry={() => refetchReport()}
           />
         ) : (
@@ -313,7 +332,14 @@ export default function DashboardPage() {
                     <span className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-full", r.chip)}>
                       <r.icon size={15} />
                     </span>
-                    <span className="truncate text-sm font-bold text-[var(--ink)]">{r.label}</span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-bold text-[var(--ink)]">
+                        {r.label}
+                      </span>
+                      {r.allTime && (
+                        <span className="tile-label text-[var(--ink-label)]">All time</span>
+                      )}
+                    </span>
                   </span>
                   <span className="tabular shrink-0 text-sm font-extrabold text-[var(--ink)]">
                     {r.value}
@@ -434,7 +460,8 @@ export default function DashboardPage() {
         ) : outstandingIsError ? (
           <ErrorState
             title="Couldn't load outstanding credit"
-            message={(outstandingError as Error)?.message}
+            message={errorMessage(outstandingError)}
+            reference={errorReference(outstandingError)}
             onRetry={() => refetchOutstanding()}
           />
         ) : !outstandingCustomers?.length ? (

@@ -49,14 +49,14 @@ export default function SuperadminLayout({ children }: { children: React.ReactNo
       <div className="min-h-screen bg-[var(--canvas)]" role="status" aria-live="polite">
         <span className="sr-only">Checking your operator access…</span>
         <div className="h-16 bg-[var(--forest)]" />
-        <div className="border-b border-[var(--hairline)] bg-[var(--surface)] px-4 py-2.5 md:px-8">
-          <div className="mx-auto flex max-w-6xl gap-2">
+        <div className="border-b border-[var(--hairline)] bg-[var(--surface)] px-4 lg:px-8">
+          <div className="mx-auto flex h-14 max-w-6xl items-center gap-2">
             {[0, 1, 2, 3, 4, 5].map((i) => (
               <Skeleton key={i} className="h-8 w-24 rounded-full" />
             ))}
           </div>
         </div>
-        <div className="mx-auto max-w-6xl space-y-4 px-4 py-6 md:px-8">
+        <div className="mx-auto max-w-6xl space-y-4 px-4 py-6 lg:px-8">
           <Skeleton className="h-6 w-56 rounded-full" />
           <Skeleton className="h-40 rounded-[var(--r-card)]" />
         </div>
@@ -94,11 +94,21 @@ export default function SuperadminLayout({ children }: { children: React.ReactNo
   }
 
   return (
-    <div className="min-h-screen bg-[var(--canvas)] text-[var(--ink)]">
+    <div
+      className="min-h-screen bg-[var(--canvas)] text-[var(--ink)]"
+      // This console renders its own chrome outside `(app)`, so `StickyControls`
+      // — which assumes the app's 56px mobile top bar (`top-14`, `lg:top-0`) —
+      // does not fit here. Anything a page beneath wants to pin must clear the
+      // operator bar *and* the section tabs, both of which stay put at every
+      // width: 4rem of bar + 3.5rem of tab row + its 1px hairline. Pages pin
+      // with `sticky top-[var(--console-sticky-top)] z-20`; z stays under the
+      // bar's z-40 and the tabs' z-30 so it slides beneath them, not over.
+      style={{ "--console-sticky-top": "calc(4rem + 3.5rem + 1px)" } as React.CSSProperties}
+    >
       {/* Operator bar. Forest fill: this console is deliberately graver than
           the owner-facing app, using the same palette rather than a new one. */}
       <header className="sticky top-0 z-40 bg-[var(--forest)] text-[var(--ink-on-dark)]">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4 md:px-8">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--r-control)] bg-[var(--forest-deep)]">
               <Shield size={18} />
@@ -112,12 +122,14 @@ export default function SuperadminLayout({ children }: { children: React.ReactNo
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
+            {/* The only way back to the workshop from this console — it has
+                no drawer of its own — so it is visible at every width. */}
             <Link
               href="/dashboard"
               className={cn(
-                "hidden items-center gap-1.5 rounded-full bg-[var(--forest-deep)] px-3.5 py-2 text-xs font-bold",
+                "inline-flex items-center gap-1.5 rounded-full bg-[var(--forest-deep)] px-3.5 py-2 text-xs font-bold",
                 "text-[var(--ink-on-dark)] transition-[background-color,transform] duration-150 ease-out",
-                "hover:bg-[var(--forest-hover)] active:scale-[0.97] md:inline-flex",
+                "hover:bg-[var(--forest-hover)] active:scale-[0.97]",
               )}
             >
               <ArrowLeft size={14} />
@@ -143,8 +155,14 @@ export default function SuperadminLayout({ children }: { children: React.ReactNo
         </div>
       </header>
 
-      <nav className="border-b border-[var(--hairline)] bg-[var(--surface)]">
-        <div className="mx-auto flex max-w-6xl items-center gap-1.5 overflow-x-auto px-4 py-2.5 md:px-8">
+      {/* The tabs are the only way between the six sections of this console —
+          it has no drawer — so they ride under the operator bar rather than
+          scrolling away on pages that run past a screen. Fixed `h-14` because
+          the offset above is computed from it. The sticky element is the
+          <nav>; the scroll container is the row inside it, so the horizontal
+          tab scroll and the sticky positioning stay out of each other's way. */}
+      <nav className="sticky top-16 z-30 border-b border-[var(--hairline)] bg-[var(--surface)]">
+        <div className="mx-auto flex h-14 max-w-6xl items-center gap-1.5 overflow-x-auto px-4 lg:px-8">
           {NAV_ITEMS.map((item) => {
             const active =
               item.href === "/superadmin" ? pathname === "/superadmin" : pathname.startsWith(item.href);
@@ -170,7 +188,7 @@ export default function SuperadminLayout({ children }: { children: React.ReactNo
         </div>
       </nav>
 
-      <main className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">{children}</main>
+      <main className="mx-auto max-w-6xl px-4 py-6 lg:px-8 lg:py-8">{children}</main>
     </div>
   );
 }

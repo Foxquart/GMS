@@ -3,6 +3,7 @@ import { Plus_Jakarta_Sans, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/lib/providers";
 import { PwaSupport } from "@/components/pwa-support";
+import { PwaStatus } from "@/components/pwa-status";
 
 // Geometric humanist sans — heavy display weights for the oversized
 // numerals, and tabular figures that keep money columns from jittering.
@@ -46,6 +47,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${jakarta.variable} ${geistMono.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full bg-[var(--canvas)] font-sans text-[var(--ink)]" suppressHydrationWarning>
         <Providers>
+          <PwaStatus />
           {children}
           <PwaSupport />
         </Providers>

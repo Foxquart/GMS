@@ -1,7 +1,7 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { eq } from "drizzle-orm";
-import { db } from "@/server/db/connection";
+import { db, dbReady } from "@/server/db/connection";
 import { users } from "@/server/db/schema";
 import { verifyPassword } from "@/server/lib/password";
 import { ApiError } from "@/server/lib/http";
@@ -34,6 +34,8 @@ type SessionPayload = {
 };
 
 export async function login(email: string, password: string) {
+  await dbReady();
+
   const [user] = await db
     .select()
     .from(users)
@@ -41,7 +43,7 @@ export async function login(email: string, password: string) {
     .limit(1);
 
   if (!user) throw new ApiError(401, "Invalid email or password", "AUTH");
-  if (!user.isActive) throw new ApiError(401, "Account is disabled", "AUTH");
+  if (!user.isActive) throw new ApiError(403, "This account has been disabled. Ask your workshop owner to re-enable it.", "ACCOUNT_DISABLED");
   if (!verifyPassword(password, user.passwordHash)) {
     throw new ApiError(401, "Invalid email or password", "AUTH");
   }
@@ -89,6 +91,8 @@ export async function logout() {
 }
 
 export async function getSession(): Promise<SessionPayload | null> {
+  await dbReady();
+
   const store = await cookies();
   const token = store.get(SESSION_COOKIE)?.value;
   if (!token) return null;

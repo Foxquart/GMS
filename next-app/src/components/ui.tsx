@@ -360,6 +360,84 @@ export const SectionHeader = ({
   </div>
 );
 
+/**
+ * Pins a page's title and its filter controls to the top while the list
+ * beneath scrolls, so only the rows move.
+ *
+ * A real inner scroll container would trap touch scrolling, break
+ * pull-to-refresh and leave dead space under short lists — this gets the same
+ * result using ordinary page scroll.
+ *
+ * `top-14` clears the mobile top bar; on lg there is no top bar, so it pins to
+ * the top of the column. The negative margins let the background bleed to the
+ * page gutters so rows do not show through at the edges as they pass under.
+ */
+export const StickyControls = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn(
+      "sticky top-14 z-20 -mx-4 bg-[var(--canvas)] px-4 pb-3 pt-3 lg:top-0 lg:-mx-8 lg:px-8",
+      // A hairline only once something has scrolled under it would need a
+      // scroll listener; a permanent one reads as a deliberate divider.
+      "border-b border-[var(--hairline)]/70",
+      className,
+    )}
+    {...props}
+  />
+);
+
+/**
+ * A condensed record header that appears only once the page's hero has
+ * scrolled away, giving back the "back" control and the record's identity
+ * without paying for them while the hero is still on screen.
+ *
+ * The outer rail is `h-0` and the bar is absolutely positioned inside it, so
+ * this costs zero layout — no permanent 56px band on a phone. Callers drive
+ * `shown` from an IntersectionObserver on their hero.
+ */
+export const RecordBar = ({
+  shown,
+  onBack,
+  title,
+  meta,
+  trailing,
+}: {
+  shown: boolean;
+  onBack: () => void;
+  title: React.ReactNode;
+  meta?: React.ReactNode;
+  trailing?: React.ReactNode;
+}) => (
+  <div className="sticky top-14 z-20 -mx-4 mb-0 h-0 lg:top-0 lg:-mx-8">
+    <div
+      // Hidden means gone: no tab stop, nothing for a screen reader, no
+      // second back button competing with the one in the hero.
+      inert={!shown}
+      aria-hidden={!shown}
+      className={cn(
+        "absolute inset-x-0 top-0 flex h-14 items-center gap-3 px-4 lg:px-8",
+        "border-b border-[var(--hairline)] bg-[var(--canvas)]/95 backdrop-blur-sm",
+        "transition-[opacity,translate] duration-150 ease-out",
+        shown ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-1 opacity-0",
+      )}
+    >
+      <CircleButton onDark={false} onClick={onBack} aria-label="Back">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M19 12H5" />
+          <path d="m12 19-7-7 7-7" />
+        </svg>
+      </CircleButton>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-extrabold text-[var(--ink)]">{title}</p>
+        {meta && <p className="truncate text-xs font-semibold text-[var(--ink-muted)]">{meta}</p>}
+      </div>
+      {trailing}
+    </div>
+  </div>
+);
+
 /** Responsive bento grid. Children opt into span with `col-span-2` etc. */
 export const BentoGrid = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div className={cn("grid grid-cols-2 gap-3 sm:gap-4", className)} {...props} />
@@ -378,9 +456,13 @@ export const Badge = ({
 }) => (
   <span
     className={cn(
-      // whitespace-nowrap: status pills must never wrap out of their own shape.
-      "inline-flex max-w-full shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1",
+      // A badge is always one line. `flex-nowrap` is explicit because callers
+      // pass an icon plus a label as sibling children, and without it a narrow
+      // column stacks the icon above the word and the pill balloons.
+      "inline-flex max-w-full shrink-0 flex-nowrap items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1",
       "text-[11px] font-bold leading-none tracking-wide",
+      // Any icon passed as a child keeps its size instead of being squeezed.
+      "[&>svg]:shrink-0",
       color === "slate" && "bg-[var(--surface-sunk)] text-[var(--ink-muted)]",
       color === "blue" && "bg-[var(--sage)] text-[var(--forest)]",
       color === "green" && "bg-[var(--forest)] text-[var(--ink-on-dark)]",
@@ -452,22 +534,76 @@ export const ErrorState = ({
   message,
   onRetry,
   title = "That didn't go through",
+  reference,
 }: {
   message?: string;
   onRetry?: () => void;
   title?: string;
+  /** Support reference from the server, shown so it can be quoted. */
+  reference?: string;
 }) => (
-  <div className="flex flex-col items-center justify-center rounded-[var(--r-card)] border border-[var(--terracotta)]/25 bg-[var(--terracotta)]/8 px-6 py-12 text-center">
+  <div
+    role="alert"
+    className="flex flex-col items-center justify-center rounded-[var(--r-card)] border border-[var(--terracotta)]/25 bg-[var(--terracotta)]/8 px-6 py-12 text-center"
+  >
     <SpotCone size={84} className="mb-4" />
     <p className="text-base font-extrabold text-[var(--terracotta-hover)]">{title}</p>
     <p className="mt-1 max-w-[45ch] text-sm text-[var(--ink-muted)]">
       {message ?? "Check your connection and try again."}
     </p>
+    {reference && (
+      <p className="tile-label mt-3 text-[var(--ink-label)]">Reference {reference}</p>
+    )}
     {onRetry && (
       <Button variant="outline" size="sm" onClick={onRetry} className="mt-5">
         Try again
       </Button>
     )}
+  </div>
+);
+
+/**
+ * Compact inline error for forms and sheets, where a full-surface ErrorState
+ * would be out of scale. role="alert" so it is announced rather than only seen.
+ */
+export const InlineError = ({
+  message,
+  reference,
+  className,
+}: {
+  message: string;
+  reference?: string;
+  className?: string;
+}) => (
+  <div
+    role="alert"
+    className={cn(
+      "flex items-start gap-2.5 rounded-[var(--r-control)] border border-[var(--terracotta)]/25",
+      "bg-[var(--terracotta)]/8 px-3.5 py-3",
+      className,
+    )}
+  >
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      className="mt-0.5 shrink-0 text-[var(--terracotta)]"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="8" x2="12" y2="12" />
+      <line x1="12" y1="16" x2="12.01" y2="16" />
+    </svg>
+    <div className="min-w-0">
+      <p className="text-xs font-bold leading-relaxed text-[var(--terracotta-hover)]">{message}</p>
+      {reference && (
+        <p className="tile-label mt-1 text-[var(--ink-label)]">Reference {reference}</p>
+      )}
+    </div>
   </div>
 );
 

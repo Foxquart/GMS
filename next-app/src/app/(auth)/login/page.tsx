@@ -4,30 +4,93 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Wrench } from "lucide-react";
-import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { ApiClientError, api, errorMessage, errorReference } from "@/lib/api";
 import { Button, Input, Field } from "@/components/ui";
 import { SpotCone, SpotTools } from "@/components/illustrations";
+
+/**
+ * What the person in front of the screen is told when a sign-in fails.
+ *
+ * One error, written per case. A 401 never says which of the two fields was
+ * wrong — that would confirm to anyone guessing that an address is registered.
+ * A server-side failure carries its reference, because this is the screen
+ * where someone has nothing else to quote when they ask for help.
+ */
+type LoginFailure = {
+  title: string;
+  detail: string;
+  reference?: string;
+  /** Whether the fields themselves are what the person should re-check. */
+  fieldsAtFault: boolean;
+};
+
+function describeFailure(err: unknown): LoginFailure {
+  const status = err instanceof ApiClientError ? err.status : undefined;
+
+  if (status === 0) {
+    return {
+      title: "You appear to be offline",
+      detail: "Check your connection, then try signing in again.",
+      fieldsAtFault: false,
+    };
+  }
+
+  if (status === 401) {
+    return {
+      title: "That email and password don't match.",
+      detail:
+        "Check both and try again. If you are sure they are right, ask your workshop owner whether your account is still active.",
+      fieldsAtFault: true,
+    };
+  }
+
+  if (status === 429) {
+    // The server says how long to wait — that number is the whole message.
+    return {
+      title: "Too many sign-in attempts",
+      detail: errorMessage(err),
+      fieldsAtFault: false,
+    };
+  }
+
+  if (status !== undefined && status >= 500) {
+    return {
+      title: "We couldn't sign you in",
+      detail: errorMessage(err),
+      reference: errorReference(err),
+      fieldsAtFault: false,
+    };
+  }
+
+  return {
+    title: "That didn't sign you in",
+    detail: errorMessage(err),
+    fieldsAtFault: status === 400,
+  };
+}
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<LoginFailure | null>(null);
+
+  // Editing either field is the person answering the error, so it goes away.
+  const clearFailure = () => setFailure((prev) => (prev ? null : prev));
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setFormError(null);
+    setFailure(null);
     try {
       await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
       router.push("/dashboard");
       router.refresh();
-    } catch (err: any) {
-      const message = err?.message ?? "Login failed";
-      setFormError(message);
-      toast.error(message);
+    } catch (err) {
+      // One error, inline, where the fields are. No toast as well — the same
+      // failure told twice reads as two failures.
+      setFailure(describeFailure(err));
     } finally {
       setLoading(false);
     }
@@ -64,7 +127,7 @@ export default function LoginPage() {
 
           <form onSubmit={submit} className="space-y-4 p-6" noValidate>
             <AnimatePresence initial={false}>
-              {formError && (
+              {failure && (
                 <motion.div
                   key="login-error"
                   role="alert"
@@ -77,11 +140,16 @@ export default function LoginPage() {
                   <SpotCone size={34} className="-mt-0.5 shrink-0" />
                   <div className="min-w-0">
                     <p className="text-sm font-extrabold text-[var(--terracotta-hover)]">
-                      That didn&apos;t sign you in
+                      {failure.title}
                     </p>
                     <p className="mt-0.5 text-xs leading-relaxed text-[var(--ink-muted)]">
-                      {formError}. Check the email and password, then try again.
+                      {failure.detail}
                     </p>
+                    {failure.reference && (
+                      <p className="tile-label mt-1.5 text-[var(--ink-label)]">
+                        Reference {failure.reference}
+                      </p>
+                    )}
                   </div>
                 </motion.div>
               )}
@@ -94,13 +162,13 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
-                  if (formError) setFormError(null);
+                  clearFailure();
                 }}
                 placeholder="you@yourgarage.com"
                 autoComplete="email"
                 autoCapitalize="none"
                 spellCheck={false}
-                aria-invalid={formError ? true : undefined}
+                aria-invalid={failure?.fieldsAtFault ? true : undefined}
                 disabled={loading}
                 required
               />
@@ -113,11 +181,11 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
-                  if (formError) setFormError(null);
+                  clearFailure();
                 }}
                 placeholder="Your password"
                 autoComplete="current-password"
-                aria-invalid={formError ? true : undefined}
+                aria-invalid={failure?.fieldsAtFault ? true : undefined}
                 disabled={loading}
                 required
               />

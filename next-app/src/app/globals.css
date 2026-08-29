@@ -53,15 +53,10 @@
   --ease-out: cubic-bezier(0.22, 0.9, 0.32, 1);
   --ease-in: cubic-bezier(0.55, 0.06, 0.68, 0.19);
 
-  /* How far page content and page-level bottom bars must clear the
-     floating nav pill. Zero on desktop, where the nav is a sidebar. */
-  --nav-inset: calc(5.5rem + env(safe-area-inset-bottom));
-}
-
-@media (min-width: 768px) {
-  :root {
-    --nav-inset: 0px;
-  }
+  /* Navigation is a sidebar (desktop) or a drawer (mobile), so nothing
+     floats over the bottom of the page any more. Page-level sticky bars
+     still anchor to this, which now only reserves the home-indicator area. */
+  --nav-inset: env(safe-area-inset-bottom);
 }
 
 @theme inline {

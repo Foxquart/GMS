@@ -66,7 +66,7 @@ export async function updateCustomer(
     .set({ ...input, updatedAt: new Date() })
     .where(eq(customers.id, id))
     .returning();
-  if (!row) throw new ApiError(404, "Customer not found");
+  if (!row) throw new ApiError(404, "Customer not found", "NOT_FOUND");
   return row;
 }
 
@@ -76,7 +76,7 @@ export async function getCustomerDetail(id: string) {
     .from(customers)
     .where(eq(customers.id, id))
     .limit(1);
-  if (!customer) throw new ApiError(404, "Customer not found");
+  if (!customer) throw new ApiError(404, "Customer not found", "NOT_FOUND");
 
   // The four reads below are independent of one another — they were four
   // sequential round trips, which is four times the network latency on a

@@ -5,9 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, UserPlus, User, Car, Sparkles } from "lucide-react";
-import { api } from "@/lib/api";
+import { ApiClientError, api, errorMessage, errorReference } from "@/lib/api";
 import {
   Button,
+  InlineError,
   Input,
   Field,
   Textarea,
@@ -80,8 +81,17 @@ function NewJobForm() {
   const [complaint, setComplaint] = useState("");
   const [edits, setEdits] = useState<VehicleEdits>({ customerId: presetCustomerId });
   const [picked, setPicked] = useState<{ customerId: string; id: string } | null>(null);
+  // Both failures belong to the form in front of the operator, so they render
+  // inline where the action was taken rather than in a toast.
+  const [customerError, setCustomerError] = useState<unknown>(null);
+  const [jobError, setJobError] = useState<unknown>(null);
 
-  const { data: customers } = useQuery({
+  const {
+    data: customers,
+    isError: customersFailed,
+    error: customersError,
+    refetch: refetchCustomers,
+  } = useQuery({
     queryKey: ["customers"],
     queryFn: () => api<any[]>("/api/customers"),
   });
@@ -111,17 +121,20 @@ function NewJobForm() {
 
   const Spot = VEHICLE_SPOT[(vehicleType as keyof typeof VEHICLE_SPOT) ?? "OTHER"] ?? VEHICLE_SPOT.OTHER;
 
-  const editVehicle = (patch: Omit<VehicleEdits, "customerId">) =>
+  const editVehicle = (patch: Omit<VehicleEdits, "customerId">) => {
+    setJobError(null);
     setEdits((prev) => ({
       ...(prev.customerId === customerId ? prev : {}),
       customerId,
       ...patch,
     }));
+  };
 
   const selectCustomer = (id: string) => {
     setCustomerId(id);
     setEdits({ customerId: id });
     setPicked(null);
+    setJobError(null);
   };
 
   const createCustomer = useMutation({
@@ -135,11 +148,25 @@ function NewJobForm() {
       setShowNewCustomer(false);
       setCustomerName("");
       setCustomerPhone("");
+      setCustomerError(null);
       qc.invalidateQueries({ queryKey: ["customers"] });
       toast.success("Customer created");
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (err) => setCustomerError(err),
   });
+
+  const customerDuplicate =
+    customerError instanceof ApiClientError && customerError.code === "DUPLICATE";
+
+  const openNewCustomer = () => {
+    setCustomerError(null);
+    setShowNewCustomer(true);
+  };
+
+  const closeNewCustomer = () => {
+    setCustomerError(null);
+    setShowNewCustomer(false);
+  };
 
   const createJob = useMutation({
     mutationFn: () =>
@@ -163,13 +190,19 @@ function NewJobForm() {
       toast.success(`Job ${job.jobNumber} created`);
       router.push(`/jobs/${job.id}`);
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (err) => setJobError(err),
   });
+
+  // The customer record went away between picking it and submitting — the way
+  // out is choosing someone else, not pressing Create again.
+  const customerGone = jobError instanceof ApiClientError && jobError.status === 404;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    setJobError(null);
     if (!customerId) {
-      toast.error("Select or create a customer");
+      // Same surface as a server failure: the form the operator is looking at.
+      setJobError(new Error("Pick a customer, or add a new one, before opening the job."));
       return;
     }
     createJob.mutate();
@@ -184,7 +217,7 @@ function NewJobForm() {
           icon={<User size={18} />}
           action={
             !showNewCustomer && !lockedCustomer ? (
-              <Button type="button" size="sm" variant="ghost" onClick={() => setShowNewCustomer(true)}>
+              <Button type="button" size="sm" variant="ghost" onClick={openNewCustomer}>
                 <UserPlus size={14} /> New customer
               </Button>
             ) : undefined
@@ -225,17 +258,33 @@ function NewJobForm() {
               <Input
                 placeholder="e.g. Ramesh Sharma"
                 value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
+                onChange={(e) => {
+                  setCustomerName(e.target.value);
+                  setCustomerError(null);
+                }}
               />
             </Field>
             <Field label="Phone">
               <Input
                 placeholder="e.g. 98300 12345"
                 value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
+                onChange={(e) => {
+                  setCustomerPhone(e.target.value);
+                  setCustomerError(null);
+                }}
                 inputMode="tel"
               />
             </Field>
+            {customerError != null && (
+              <InlineError
+                message={
+                  customerDuplicate
+                    ? "Someone with these details is already in the registry. Cancel and pick them from the list."
+                    : errorMessage(customerError)
+                }
+                reference={errorReference(customerError)}
+              />
+            )}
             <div className="flex gap-2">
               <Button
                 type="button"
@@ -245,11 +294,28 @@ function NewJobForm() {
               >
                 {createCustomer.isPending ? "Saving…" : "Save customer"}
               </Button>
-              <Button type="button" size="sm" variant="ghost" onClick={() => setShowNewCustomer(false)}>
+              <Button type="button" size="sm" variant="ghost" onClick={closeNewCustomer}>
                 Cancel
               </Button>
             </div>
           </Tile>
+        ) : customersFailed ? (
+          /* Without this the picker is just empty, which reads as "you have no
+             customers" rather than "the list did not load". */
+          <div className="space-y-2.5">
+            <InlineError
+              message={errorMessage(customersError)}
+              reference={errorReference(customersError)}
+            />
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => refetchCustomers()}>
+                Try again
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={openNewCustomer}>
+                <UserPlus size={14} /> New customer
+              </Button>
+            </div>
+          </div>
         ) : (
           <AnimatedDropdown
             options={(customers ?? []).map((c) => ({
@@ -357,12 +423,34 @@ function NewJobForm() {
         <Field label="What has the customer reported?">
           <Textarea
             value={complaint}
-            onChange={(e) => setComplaint(e.target.value)}
+            onChange={(e) => {
+              setComplaint(e.target.value);
+              setJobError(null);
+            }}
             placeholder="e.g. Brake noise at low speed, engine oil change due"
             rows={3}
           />
         </Field>
       </section>
+
+      {jobError != null && (
+        <div className="space-y-2.5">
+          <InlineError message={errorMessage(jobError)} reference={errorReference(jobError)} />
+          {customerGone && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setLockedCustomer(false);
+                selectCustomer("");
+              }}
+            >
+              Choose another customer
+            </Button>
+          )}
+        </div>
+      )}
 
       <Button type="submit" className="w-full" size="lg" disabled={createJob.isPending}>
         <Plus size={18} />

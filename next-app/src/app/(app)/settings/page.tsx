@@ -4,12 +4,13 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Building2, Check, FileText, Receipt, RotateCcw } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, errorMessage, errorReference } from "@/lib/api";
 import {
   Button,
   Card,
   ErrorState,
   Field,
+  InlineError,
   Input,
   Panel,
   SectionHeader,
@@ -40,6 +41,7 @@ export default function SettingsPage() {
   const qc = useQueryClient();
   const [edits, setEdits] = useState<Partial<Record<SettingKey, string>>>({});
   const [justSaved, setJustSaved] = useState(false);
+  const [saveError, setSaveError] = useState<{ message: string; reference?: string } | null>(null);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["settings"],
@@ -55,6 +57,8 @@ export default function SettingsPage() {
 
   const set = (key: SettingKey, v: string) => {
     setJustSaved(false);
+    // Editing anything is an attempt to fix the failed save.
+    setSaveError(null);
     setEdits((prev) => ({ ...prev, [key]: v }));
   };
 
@@ -72,9 +76,13 @@ export default function SettingsPage() {
       toast.success("Settings saved");
       setEdits({});
       setJustSaved(true);
+      setSaveError(null);
       qc.invalidateQueries({ queryKey: ["settings"] });
     },
-    onError: (e: any) => toast.error(e.message),
+    // The form and its unsaved changes are still on screen, so the failure
+    // stays with them rather than sliding away in a toast.
+    onError: (err) =>
+      setSaveError({ message: errorMessage(err), reference: errorReference(err) }),
   });
 
   // The "saved" acknowledgement in the action bar is a moment, not a mode.
@@ -99,7 +107,8 @@ export default function SettingsPage() {
         {header}
         <ErrorState
           title="Couldn't load your settings"
-          message={(error as Error)?.message ?? "The settings couldn't be fetched just now."}
+          message={errorMessage(error)}
+          reference={errorReference(error)}
           onRetry={() => refetch()}
         />
       </div>
@@ -219,8 +228,17 @@ export default function SettingsPage() {
       </Card>
 
       {/* One save affordance, with every state designed: idle, dirty,
-          pending and just-saved. It clears the floating mobile nav pill. */}
-      <div className="sticky bottom-[var(--nav-inset)] z-30 -mx-1 pb-1 pt-1">
+          pending and just-saved. There is no bottom nav to clear any more, so
+          it sticks to the viewport edge — the padding below the card is what
+          keeps it off that edge, and it absorbs the safe-area inset. */}
+      <div className="sticky bottom-0 z-30 -mx-1 space-y-2 pt-2 pb-[calc(var(--nav-inset)+0.75rem)]">
+        {saveError && (
+          <InlineError
+            message={saveError.message}
+            reference={saveError.reference}
+            className="bg-[var(--surface-bright)] shadow-[var(--lift-2)]"
+          />
+        )}
         <div className="flex items-center gap-3 rounded-[var(--r-card)] border border-[var(--hairline-strong)] bg-[var(--surface-bright)] p-3 shadow-[var(--lift-2)]">
           <p className="min-w-0 flex-1 text-xs font-bold leading-tight text-[var(--ink-muted)]">
             {dirty ? (

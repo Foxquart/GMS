@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { IndianRupee, Search, Wrench, X } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, errorMessage, errorReference } from "@/lib/api";
 import {
   Badge,
   Button,
@@ -13,6 +13,7 @@ import {
   Input,
   Skeleton,
   StatTile,
+  StickyControls,
 } from "@/components/ui";
 import { SpotClipboard } from "@/components/illustrations";
 import { currency, formatDate, invoiceStatusLabel } from "@/lib/format";
@@ -139,37 +140,26 @@ export default function InvoicesPage() {
 
   return (
     <div className="space-y-5">
-      <header className="flex items-end justify-between gap-3">
-        <div className="min-w-0">
-          <p className="tile-label text-[var(--ink-label)]">Billing</p>
-          <h1 className="mt-1 text-[clamp(1.5rem,6vw,2rem)] font-extrabold leading-none tracking-tight text-[var(--ink)]">
-            Invoices
-          </h1>
-        </div>
-        <Link href="/jobs" className="shrink-0">
-          <Button variant="outline">
-            <Wrench size={16} /> Jobs
-          </Button>
-        </Link>
-      </header>
+      {/* Pinned chrome: the billing title, the jobs link, search and the
+          status chips - the two things you reach for while hunting an invoice.
+          Title and chips are both short rows, so on a 360x640 phone this stays
+          around a third of the viewport. The awaiting-payment tile reports on
+          the list rather than filtering it, so it scrolls away with it. */}
+      <StickyControls className="space-y-2.5">
+        <header className="flex items-end justify-between gap-3">
+          <div className="min-w-0">
+            <p className="tile-label text-[var(--ink-label)]">Billing</p>
+            <h1 className="mt-1 text-[clamp(1.5rem,6vw,2rem)] font-extrabold leading-none tracking-tight text-[var(--ink)]">
+              Invoices
+            </h1>
+          </div>
+          <Link href="/jobs" className="shrink-0">
+            <Button variant="outline">
+              <Wrench size={16} /> Jobs
+            </Button>
+          </Link>
+        </header>
 
-      {isLoading ? (
-        <Skeleton className="h-[124px] rounded-[var(--r-tile)]" />
-      ) : isError ? null : (
-        <StatTile
-          tone={book.owed > 0 ? "terracotta" : "forest"}
-          label="Awaiting payment"
-          value={<span className="tabular">{currency(book.owed)}</span>}
-          icon={<IndianRupee size={18} />}
-          footnote={
-            book.owed > 0
-              ? `${book.unpaid} of ${book.count} ${book.count === 1 ? "invoice" : "invoices"} still open`
-              : `All ${book.count} ${book.count === 1 ? "invoice is" : "invoices are"} settled`
-          }
-        />
-      )}
-
-      <div className="space-y-3">
         <div className="relative">
           <Search
             size={16}
@@ -199,6 +189,9 @@ export default function InvoicesPage() {
           )}
         </div>
 
+        {/* The chips bleed back out to the page gutter so the row can be
+            swiped edge to edge; StickyControls' own padding is what they are
+            escaping, which lands them exactly where they sat before. */}
         <div
           className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:flex-wrap md:px-0"
           role="group"
@@ -226,7 +219,23 @@ export default function InvoicesPage() {
             );
           })}
         </div>
-      </div>
+      </StickyControls>
+
+      {isLoading ? (
+        <Skeleton className="h-[124px] rounded-[var(--r-tile)]" />
+      ) : isError ? null : (
+        <StatTile
+          tone={book.owed > 0 ? "terracotta" : "forest"}
+          label="Awaiting payment"
+          value={<span className="tabular">{currency(book.owed)}</span>}
+          icon={<IndianRupee size={18} />}
+          footnote={
+            book.owed > 0
+              ? `${book.unpaid} of ${book.count} ${book.count === 1 ? "invoice" : "invoices"} still open`
+              : `All ${book.count} ${book.count === 1 ? "invoice is" : "invoices are"} settled`
+          }
+        />
+      )}
 
       {isLoading ? (
         <div className="space-y-2.5" aria-busy="true">
@@ -237,7 +246,8 @@ export default function InvoicesPage() {
       ) : isError ? (
         <ErrorState
           title="Couldn't load the invoice book"
-          message={(error as Error)?.message}
+          message={errorMessage(error)}
+          reference={errorReference(error)}
           onRetry={() => refetch()}
         />
       ) : !invoices?.length ? (

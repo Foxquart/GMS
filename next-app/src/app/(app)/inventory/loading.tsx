@@ -1,37 +1,33 @@
-import { BentoGrid, Skeleton } from "@/components/ui";
+import { Skeleton, StickyControls } from "@/components/ui";
 
-/** Shell of the inventory hub: bento header, shelf links, switch, parts list. */
+/**
+ * Shell of the inventory hub. The title row scrolls; the location/status
+ * filters and the search are drawn with the same `StickyControls` the page
+ * uses, so the list below starts at the same offset once the data lands.
+ */
 export default function InventoryLoading() {
   return (
-    <div className="space-y-5 pb-20 md:pb-0">
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-2">
+    <div className="space-y-5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 space-y-2">
           <Skeleton className="h-8 w-40 rounded-full" />
-          <Skeleton className="h-4 w-56 rounded-full" />
+          <Skeleton className="h-4 w-64 rounded-full" />
         </div>
-        <div className="hidden gap-2 md:flex">
-          <Skeleton className="h-10 w-28 rounded-full" />
-          <Skeleton className="h-10 w-28 rounded-full" />
+        <div className="flex shrink-0 gap-2">
+          <Skeleton className="h-11 w-11 rounded-full" />
+          <Skeleton className="h-11 w-11 rounded-full" />
         </div>
       </div>
 
-      <BentoGrid>
-        <Skeleton className="col-span-2 h-32" />
-        <Skeleton className="h-32" />
-        <Skeleton className="h-32" />
-        <Skeleton className="col-span-2 h-24" />
-      </BentoGrid>
-
-      <div className="flex flex-wrap gap-2">
-        {["categories", "suppliers", "movements", "transfers"].map((k) => (
-          <Skeleton key={k} className="h-9 w-28 rounded-full" />
-        ))}
-      </div>
-
-      <div className="space-y-3">
-        <Skeleton className="h-12 rounded-full" />
+      <StickyControls className="space-y-2.5">
+        {/* Location pill on the left, status filter taking the rest.
+            44px target plus the 4px track = 52px. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Skeleton className="h-[52px] w-[118px] rounded-full" />
+          <Skeleton className="h-[52px] flex-1 basis-[188px] rounded-full" />
+        </div>
         <Skeleton className="h-11 rounded-[var(--r-control)]" />
-      </div>
+      </StickyControls>
 
       <div className="space-y-2.5">
         <Skeleton className="h-5 w-28 rounded-full" />

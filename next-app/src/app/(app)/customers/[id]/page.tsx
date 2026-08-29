@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
@@ -13,7 +14,7 @@ import {
   Plus,
   Wrench,
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { ApiClientError, api, errorMessage, errorReference } from "@/lib/api";
 import {
   Badge,
   BentoGrid,
@@ -27,6 +28,7 @@ import {
   SpecTile,
   StatTile,
   Tile,
+  RecordBar,
 } from "@/components/ui";
 import { SpotClipboard, SpotTools, VEHICLE_SPOT } from "@/components/illustrations";
 import { cn } from "@/lib/cn";
@@ -84,9 +86,45 @@ function CustomerSkeleton() {
   );
 }
 
+/**
+ * The condensed record bar.
+ *
+ * The hero owns the back control, and a customer with a long history scrolls
+ * it far out of reach — leaving no way back but the browser gesture. This
+ * brings that control back, with just enough identity to know whose file the
+ * rows beneath belong to.
+ *
+ * It lives in a zero-height sticky rail, so it costs nothing until it is
+ * needed: no space is reserved while the hero is on screen, and the bar floats
+ * over the page only once the hero has passed. `top-14` clears the mobile top
+ * bar, `z-20` keeps it under that bar (z-30), the sidebar (z-40) and sheets
+ * (z-50). The negative margins let the fill bleed to the page gutters so rows
+ * do not show through at the edges as they pass under.
+ */
 export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+
+  // The hero carries the back control until it scrolls away; from there the
+  // condensed bar takes over. A callback ref (not useRef) because the hero
+  // only mounts once the customer has loaded, and the observer has to wait
+  // for it.
+  const [heroEl, setHeroEl] = useState<HTMLDivElement | null>(null);
+  const [heroGone, setHeroGone] = useState(false);
+
+  // The bar is revealed at the moment its rail pins, so it never floats loose
+  // in the gap: the mobile top bar is 56px and the rail sits 20px (space-y-5)
+  // below the hero, which puts the meeting point at the hero's bottom edge
+  // crossing 36px. On lg there is no top bar and it arrives those 36px of
+  // scroll early — less than one flick.
+  useEffect(() => {
+    if (!heroEl || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([entry]) => setHeroGone(!entry.isIntersecting), {
+      rootMargin: "-36px 0px 0px 0px",
+    });
+    io.observe(heroEl);
+    return () => io.disconnect();
+  }, [heroEl]);
 
   // Billing has to stay live: refetch when the tab regains focus / remounts so
   // the figures reflect payments recorded elsewhere in the app.
@@ -100,20 +138,12 @@ export default function CustomerDetailPage() {
 
   if (isLoading) return <CustomerSkeleton />;
 
-  if (isError) {
-    return (
-      <div className="space-y-5">
-        <Skeleton className="h-[176px] rounded-[var(--r-panel)]" />
-        <ErrorState
-          title="Couldn't load this customer"
-          message={(error as Error)?.message}
-          onRetry={() => refetch()}
-        />
-      </div>
-    );
-  }
+  // A 404 is not a failure to load — the record is simply gone, and the empty
+  // state (with a way back) says that better than an error panel would.
+  const missing =
+    (isError && error instanceof ApiClientError && error.status === 404) || (!isError && !data);
 
-  if (!data) {
+  if (missing) {
     return (
       <EmptyState
         title="Customer not found"
@@ -125,6 +155,20 @@ export default function CustomerDetailPage() {
           </Link>
         }
       />
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <div className="space-y-5">
+        <Skeleton className="h-[176px] rounded-[var(--r-panel)]" />
+        <ErrorState
+          title="Couldn't load this customer"
+          message={errorMessage(error)}
+          reference={errorReference(error)}
+          onRetry={() => refetch()}
+        />
+      </div>
     );
   }
 
@@ -147,55 +191,75 @@ export default function CustomerDetailPage() {
 
   return (
     <div className="space-y-5">
-      <HeroPanel
-        tone="forest"
+      <div ref={setHeroEl}>
+        <HeroPanel
+          tone="forest"
+          title={customer.name}
+          subtitle={customer.phone}
+          eyebrow="Customer"
+          leading={
+            <CircleButton onClick={() => router.back()} aria-label="Back">
+              <ArrowLeft size={18} />
+            </CircleButton>
+          }
+          trailing={
+            <>
+              <CircleButton
+                onClick={() => {
+                  window.location.href = `tel:${customer.phone}`;
+                }}
+                aria-label={`Call ${customer.name}`}
+                title="Call"
+              >
+                <Phone size={18} />
+              </CircleButton>
+              <CircleButton
+                onClick={() => window.open(waHref, "_blank", "noopener,noreferrer")}
+                aria-label={`Message ${customer.name} on WhatsApp`}
+                title="WhatsApp"
+              >
+                <MessageCircle size={18} />
+              </CircleButton>
+            </>
+          }
+        >
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <Link href={`/jobs/new?customerId=${id}`}>
+              <Button variant="secondary" size="sm">
+                <Plus size={14} /> New job
+              </Button>
+            </Link>
+            <p className="min-w-0 flex-1 truncate text-xs font-semibold text-[var(--ink-on-dark-muted)]">
+              {customer.address
+                ? customer.address
+                : `${stats.jobCount} ${stats.jobCount === 1 ? "job" : "jobs"} on record`}
+            </p>
+            {isFetching && (
+              <span className="tile-label shrink-0 text-[var(--ink-on-dark-muted)]" role="status">
+                Updating…
+              </span>
+            )}
+          </div>
+        </HeroPanel>
+      </div>
+
+      {/* ── Condensed record bar — arrives when the hero leaves ─────── */}
+      <RecordBar
+        shown={heroGone}
+        onBack={() => router.back()}
         title={customer.name}
-        subtitle={customer.phone}
-        eyebrow="Customer"
-        leading={
-          <CircleButton onClick={() => router.back()} aria-label="Back">
-            <ArrowLeft size={18} />
-          </CircleButton>
-        }
+        meta={<span className="tabular">{customer.phone}</span>}
         trailing={
-          <>
-            <CircleButton
-              onClick={() => {
-                window.location.href = `tel:${customer.phone}`;
-              }}
-              aria-label={`Call ${customer.name}`}
-              title="Call"
-            >
-              <Phone size={18} />
-            </CircleButton>
-            <CircleButton
-              onClick={() => window.open(waHref, "_blank", "noopener,noreferrer")}
-              aria-label={`Message ${customer.name} on WhatsApp`}
-              title="WhatsApp"
-            >
-              <MessageCircle size={18} />
-            </CircleButton>
-          </>
+          onCredit ? (
+            <div className="shrink-0 text-right">
+              <p className="tile-label text-[var(--ink-label)]">Due</p>
+              <p className="tabular text-sm font-extrabold text-[var(--terracotta-hover)]">
+                {currency(stats.outstanding)}
+              </p>
+            </div>
+          ) : undefined
         }
-      >
-        <div className="mt-5 flex flex-wrap items-center gap-3">
-          <Link href={`/jobs/new?customerId=${id}`}>
-            <Button variant="secondary" size="sm">
-              <Plus size={14} /> New job
-            </Button>
-          </Link>
-          <p className="min-w-0 flex-1 truncate text-xs font-semibold text-[var(--ink-on-dark-muted)]">
-            {customer.address
-              ? customer.address
-              : `${stats.jobCount} ${stats.jobCount === 1 ? "job" : "jobs"} on record`}
-          </p>
-          {isFetching && (
-            <span className="tile-label shrink-0 text-[var(--ink-on-dark-muted)]" role="status">
-              Updating…
-            </span>
-          )}
-        </div>
-      </HeroPanel>
+      />
 
       <BentoGrid className="sm:grid-cols-3">
         <StatTile

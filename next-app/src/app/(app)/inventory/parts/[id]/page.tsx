@@ -18,7 +18,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { ApiClientError, api, errorMessage, errorReference } from "@/lib/api";
 import {
   Badge,
   BentoGrid,
@@ -28,6 +28,7 @@ import {
   ErrorState,
   Field,
   HeroPanel,
+  InlineError,
   Input,
   SectionHeader,
   Select,
@@ -35,6 +36,7 @@ import {
   Skeleton,
   SpecTile,
   StatTile,
+  StickyControls,
   Textarea,
   Tile,
   type Tone,
@@ -45,6 +47,14 @@ import { cn } from "@/lib/cn";
 
 const movementLabel = (m: string) =>
   m.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** A failure shown inside the sheet it happened in. */
+type SurfaceError = { message: string; reference?: string } | null;
+
+const asSurfaceError = (err: unknown): SurfaceError => ({
+  message: errorMessage(err),
+  reference: errorReference(err),
+});
 
 const movementColor = (m: string) =>
   m === "STOCK_IN" || m === "TRANSFER_IN"
@@ -75,6 +85,13 @@ export default function PartDetailPage() {
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
 
+  // One error per sheet, cleared when that sheet is reopened or edited — a
+  // failure from a previous attempt must never greet a fresh one.
+  const [stockInError, setStockInError] = useState<SurfaceError>(null);
+  const [adjustError, setAdjustError] = useState<SurfaceError>(null);
+  const [transferError, setTransferError] = useState<SurfaceError>(null);
+  const [editError, setEditError] = useState<SurfaceError>(null);
+
   const [qty, setQty] = useState("1");
   const [location, setLocation] = useState<"SHOP" | "WAREHOUSE">("WAREHOUSE");
   const [newQty, setNewQty] = useState("0");
@@ -96,11 +113,16 @@ export default function PartDetailPage() {
     queryFn: () => api<any[]>("/api/categories"),
   });
 
-  const { data: movements, isPending: movPending, isError: movError, refetch: refetchMovements } =
-    useQuery({
-      queryKey: ["movements", id],
-      queryFn: () => api<any[]>("/api/inventory/movements", { params: { partId: id } }),
-    });
+  const {
+    data: movements,
+    isPending: movPending,
+    isError: movError,
+    error: movErrorDetail,
+    refetch: refetchMovements,
+  } = useQuery({
+    queryKey: ["movements", id],
+    queryFn: () => api<any[]>("/api/inventory/movements", { params: { partId: id } }),
+  });
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["part", id] });
@@ -126,12 +148,13 @@ export default function PartDetailPage() {
     onSuccess: () => {
       toast.success(`${qty} ${data?.unit ?? "pcs"} added to ${location === "SHOP" ? "shop" : "warehouse"}`);
       setStockInOpen(false);
+      setStockInError(null);
       setQty("1");
       setNote("");
       setSupplierId("");
       invalidate();
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (err) => setStockInError(asSurfaceError(err)),
   });
 
   const adjust = useMutation({
@@ -148,10 +171,23 @@ export default function PartDetailPage() {
     onSuccess: () => {
       toast.success(`${location === "SHOP" ? "Shop" : "Warehouse"} count set to ${newQty}`);
       setAdjustOpen(false);
+      setAdjustError(null);
       setNote("");
       invalidate();
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (err) => {
+      if (err instanceof ApiClientError && err.code === "INSUFFICIENT_STOCK") {
+        // Someone else moved this stock while the sheet was open. Pull the
+        // real figure back rather than leaving a stale one on screen.
+        refetch();
+        setAdjustError({
+          message:
+            "The recorded count changed while this was open. The figures have been refreshed — check them and enter the count again.",
+        });
+        return;
+      }
+      setAdjustError(asSurfaceError(err));
+    },
   });
 
   const transfer = useMutation({
@@ -163,11 +199,23 @@ export default function PartDetailPage() {
     onSuccess: () => {
       toast.success(`${qty} moved from warehouse to shop`);
       setTransferOpen(false);
+      setTransferError(null);
       setQty("1");
       setNote("");
       invalidate();
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (err) => {
+      if (err instanceof ApiClientError && err.code === "INSUFFICIENT_STOCK") {
+        // Nothing left out back to move. Stocking in is the way forward.
+        refetch();
+        setTransferError({
+          message:
+            "The warehouse doesn't hold that many any more. Move a smaller quantity, or record a stock-in first.",
+        });
+        return;
+      }
+      setTransferError(asSurfaceError(err));
+    },
   });
 
   const saveEdit = useMutation({
@@ -191,11 +239,12 @@ export default function PartDetailPage() {
     onSuccess: () => {
       toast.success("Part updated");
       setEditOpen(false);
+      setEditError(null);
       qc.invalidateQueries({ queryKey: ["part", id] });
       qc.invalidateQueries({ queryKey: ["parts"] });
       qc.invalidateQueries({ queryKey: ["inventory"] });
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (err) => setEditError(asSurfaceError(err)),
   });
 
   const setEAttr = (i: number, patch: Partial<{ label: string; value: string }>) =>
@@ -212,18 +261,40 @@ export default function PartDetailPage() {
     setEMinWarehouse(String(part?.minimumWarehouseStock ?? 0));
     setEDescription(part?.description ?? "");
     setEAttributes(part?.attributes ?? []);
+    setEditError(null);
     setEditOpen(true);
+  };
+
+  const openStockIn = () => {
+    setStockInError(null);
+    setStockInOpen(true);
+  };
+
+  const openAdjust = (loc: "SHOP" | "WAREHOUSE", counted: number) => {
+    setLocation(loc);
+    setNewQty(String(counted));
+    setAdjustError(null);
+    setAdjustOpen(true);
+  };
+
+  const openTransfer = () => {
+    setTransferError(null);
+    setTransferOpen(true);
   };
 
   if (isPending) {
     return (
       <div className="mx-auto max-w-2xl space-y-5">
         <Skeleton className="h-48 rounded-[var(--r-panel)]" />
-        <div className="grid grid-cols-3 gap-2">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-10 rounded-full" />
-          ))}
-        </div>
+        {/* Same wrapper as the loaded page, so the action row does not shift
+            down by its sticky padding the moment the part arrives. */}
+        <StickyControls className="mx-0 px-0 lg:mx-0 lg:px-0">
+          <div className="grid grid-cols-3 gap-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 rounded-full" />
+            ))}
+          </div>
+        </StickyControls>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-[86px]" />
@@ -243,7 +314,9 @@ export default function PartDetailPage() {
           <h1 className="text-xl font-extrabold text-[var(--ink)]">Part</h1>
         </div>
         <ErrorState
-          message={(error as Error)?.message ?? "This part didn't load."}
+          title="Couldn't load this part"
+          message={errorMessage(error)}
+          reference={errorReference(error)}
           onRetry={() => refetch()}
         />
       </div>
@@ -322,27 +395,41 @@ export default function PartDetailPage() {
         </div>
       </HeroPanel>
 
-      <div className="grid grid-cols-3 gap-2">
-        <Button onClick={() => setStockInOpen(true)}>
-          <ArrowDownToLine size={16} />
-          <span className="truncate">Stock in</span>
-        </Button>
-        <Button
-          variant="outline"
-          onClick={() => {
-            setLocation("SHOP");
-            setNewQty(String(shopStock));
-            setAdjustOpen(true);
-          }}
-        >
-          <Settings2 size={16} />
-          <span className="truncate">Adjust</span>
-        </Button>
-        <Button variant="secondary" onClick={() => setTransferOpen(true)}>
-          <ArrowLeftRight size={16} />
-          <span className="truncate">To shop</span>
-        </Button>
-      </div>
+      {/* The action row is the work on this page — stock coming in, a count
+          being corrected, a part carried out front — and the balances, specs
+          and history below run to two or three screens on a phone. So it
+          pins, and everything under it scrolls past it.
+
+          The hero is deliberately not pinned (it is tall), and its back
+          control is not duplicated here: a CSS sticky bar cannot appear only
+          "after the hero" — it would have to sit in flow directly beneath the
+          hero's own back button, doubling the chrome at rest for a control
+          the drawer and the platform back gesture already provide.
+
+          `mx-0 px-0` overrides the primitive's gutter bleed: this column is
+          `max-w-2xl` inside a wider `max-w-5xl` main, so bleeding to the page
+          gutters would run the hairline well past the tiles it divides. The
+          column is also the only place content can be, so covering exactly
+          the column is enough to stop rows showing through. */}
+      <StickyControls className="mx-0 px-0 lg:mx-0 lg:px-0">
+        <div className="grid grid-cols-3 gap-2">
+          <Button onClick={openStockIn}>
+            <ArrowDownToLine size={16} />
+            <span className="truncate">Stock in</span>
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => openAdjust("SHOP", shopStock)}
+          >
+            <Settings2 size={16} />
+            <span className="truncate">Adjust</span>
+          </Button>
+          <Button variant="secondary" onClick={openTransfer}>
+            <ArrowLeftRight size={16} />
+            <span className="truncate">To shop</span>
+          </Button>
+        </div>
+      </StickyControls>
 
       {/* ── Balances ───────────────────────────────────────────────── */}
       <section>
@@ -407,7 +494,14 @@ export default function PartDetailPage() {
         )}
       </section>
 
-      {/* ── Movement history ───────────────────────────────────────── */}
+      {/* ── Movement history ───────────────────────────────────────────
+          The only unbounded list on this page — every stock-in, job usage,
+          transfer and adjustment, forever. It is capped at eight here and the
+          whole log lives on its own filtered page, so the section runs to
+          well under a screen and its header has nothing to stay pinned over.
+          A second sticky band would also have to stack under the action row
+          above, which on a phone would leave a third of the viewport as
+          chrome. One pinned thing per page. */}
       <section>
         <SectionHeader
           title="Movement history"
@@ -434,7 +528,8 @@ export default function PartDetailPage() {
         ) : movError ? (
           <ErrorState
             title="Couldn't load the history"
-            message="The movement log for this part didn't come back."
+            message={errorMessage(movErrorDetail)}
+            reference={errorReference(movErrorDetail)}
             onRetry={() => refetchMovements()}
           />
         ) : !movements?.length ? (
@@ -481,11 +576,30 @@ export default function PartDetailPage() {
             ))}
           </ul>
         )}
+        {/* Where the cap bites, say so — a list that just stops looks like
+            the whole history. */}
+        {!movPending && !movError && (movements?.length ?? 0) > 8 && (
+          <Link
+            href={`/inventory/movements?partId=${id}`}
+            className={cn(
+              "mt-2 flex items-center justify-center gap-1.5 rounded-[var(--r-tile)] border border-[var(--hairline)] px-3 py-2.5",
+              "text-xs font-extrabold text-[var(--ink-muted)]",
+              "transition-[background-color,color] duration-150 ease-out",
+              "hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)]",
+            )}
+          >
+            Showing 8 of {movements?.length ?? 0} movements
+            <ArrowRight size={13} />
+          </Link>
+        )}
       </section>
 
       {/* ── Stock in ───────────────────────────────────────────────── */}
       <Sheet open={stockInOpen} onClose={() => setStockInOpen(false)} title="Stock in">
-        <div className="space-y-3.5">
+        <div className="space-y-3.5" onChange={() => setStockInError(null)}>
+          {stockInError && (
+            <InlineError message={stockInError.message} reference={stockInError.reference} />
+          )}
           <Field label="Location">
             <Select value={location} onChange={(e) => setLocation(e.target.value as any)}>
               <option value="WAREHOUSE">Warehouse</option>
@@ -533,7 +647,10 @@ export default function PartDetailPage() {
 
       {/* ── Adjust ─────────────────────────────────────────────────── */}
       <Sheet open={adjustOpen} onClose={() => setAdjustOpen(false)} title="Adjust stock">
-        <div className="space-y-3.5">
+        <div className="space-y-3.5" onChange={() => setAdjustError(null)}>
+          {adjustError && (
+            <InlineError message={adjustError.message} reference={adjustError.reference} />
+          )}
           <Field label="Location">
             <Select
               value={location}
@@ -581,7 +698,10 @@ export default function PartDetailPage() {
 
       {/* ── Move to shop ───────────────────────────────────────────── */}
       <Sheet open={transferOpen} onClose={() => setTransferOpen(false)} title="Move to shop">
-        <div className="space-y-3.5">
+        <div className="space-y-3.5" onChange={() => setTransferError(null)}>
+          {transferError && (
+            <InlineError message={transferError.message} reference={transferError.reference} />
+          )}
           <div className="flex items-center justify-between gap-3 rounded-[var(--r-tile)] bg-[var(--surface-sunk)] px-4 py-3">
             <div>
               <p className="tile-label text-[var(--ink-label)]">Warehouse</p>
@@ -622,7 +742,10 @@ export default function PartDetailPage() {
 
       {/* ── Edit part ─────────────────────────────────────────────────── */}
       <Sheet open={editOpen} onClose={() => setEditOpen(false)} title="Edit part">
-        <div className="space-y-4">
+        <div className="space-y-4" onChange={() => setEditError(null)}>
+          {editError && (
+            <InlineError message={editError.message} reference={editError.reference} />
+          )}
           <Field label="Part name">
             <Input value={eName} onChange={(e) => setEName(e.target.value)} />
           </Field>

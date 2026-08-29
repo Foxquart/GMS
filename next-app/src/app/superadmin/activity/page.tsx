@@ -2,8 +2,16 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
-import { api } from "@/lib/api";
-import { Badge, Button, Card, EmptyState, ErrorState, Skeleton } from "@/components/ui";
+import { api, errorMessage, errorReference } from "@/lib/api";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorState,
+  Skeleton,
+  StickyControls,
+} from "@/components/ui";
 import { SpotClipboard } from "@/components/illustrations";
 import { formatWhen } from "../_status";
 
@@ -23,28 +31,35 @@ export default function SuperadminActivityPage() {
   });
 
   const header = (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div className="min-w-0">
-        <h1 className="text-xl font-extrabold tracking-tight text-[var(--ink)] sm:text-2xl">
-          Audit log
-        </h1>
-        <p className="mt-1 text-sm text-[var(--ink-muted)]">
-          {logs?.length
-            ? `The last ${logs.length} administrative and platform actions, newest first.`
-            : "Administrative and platform actions, newest first."}
-        </p>
-      </div>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => refetch()}
-        disabled={isRefetching}
-        className="self-start"
-      >
-        <RefreshCw size={14} className={isRefetching ? "gear-spin" : undefined} />
-        {isRefetching ? "Refreshing…" : "Refresh"}
-      </Button>
-    </div>
+    <>
+      {/* The operator bar above is 64px tall at every width, so this pins
+          under it rather than under the workshop's mobile bar. One line only:
+          what this log is, and the button that re-reads it. The sentence
+          counting the entries scrolls away with the first few rows. */}
+      <StickyControls className="top-16 lg:top-16">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="truncate text-xl font-extrabold tracking-tight text-[var(--ink)] sm:text-2xl">
+            Audit log
+          </h1>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isRefetching}
+            className="shrink-0"
+          >
+            <RefreshCw size={14} className={isRefetching ? "gear-spin" : undefined} />
+            {isRefetching ? "Refreshing…" : "Refresh"}
+          </Button>
+        </div>
+      </StickyControls>
+
+      <p className="text-sm text-[var(--ink-muted)]">
+        {logs?.length
+          ? `The last ${logs.length} administrative and platform actions, newest first.`
+          : "Administrative and platform actions, newest first."}
+      </p>
+    </>
   );
 
   return (
@@ -54,7 +69,8 @@ export default function SuperadminActivityPage() {
       {isError && !logs ? (
         <ErrorState
           title="The audit log didn't load"
-          message={(error as Error)?.message ?? "The activity endpoint didn't respond."}
+          message={errorMessage(error)}
+          reference={errorReference(error)}
           onRetry={() => refetch()}
         />
       ) : isLoading ? (

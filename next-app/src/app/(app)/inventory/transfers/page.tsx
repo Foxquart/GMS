@@ -5,18 +5,20 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowLeftRight, MoveRight, ArrowLeft, Store, Warehouse } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { ApiClientError, api, errorMessage, errorReference } from "@/lib/api";
 import {
   Badge,
   Button,
   CircleButton,
   EmptyState,
   ErrorState,
+  InlineError,
   Input,
   Panel,
   SectionHeader,
   Select,
   Skeleton,
+  StickyControls,
 } from "@/components/ui";
 import { SpotTools } from "@/components/illustrations";
 import { formatDateTime } from "@/lib/format";
@@ -26,8 +28,12 @@ export default function TransfersPage() {
   const qc = useQueryClient();
   const [partId, setPartId] = useState("");
   const [qty, setQty] = useState("1");
+  const [moveError, setMoveError] = useState<{ message: string; reference?: string } | null>(null);
 
-  const { data: parts, isPending: partsPending } = useQuery({
+  // Changing the part or the quantity is the answer to the last failure.
+  const clearMoveError = () => setMoveError((prev) => (prev ? null : prev));
+
+  const { data: parts, isPending: partsPending, refetch: refetchParts } = useQuery({
     queryKey: ["parts"],
     queryFn: () => api<any[]>("/api/parts"),
   });
@@ -46,12 +52,27 @@ export default function TransfersPage() {
       toast.success(`${qty} moved from warehouse to shop`);
       setPartId("");
       setQty("1");
+      setMoveError(null);
       qc.invalidateQueries({ queryKey: ["transfers"] });
       qc.invalidateQueries({ queryKey: ["parts"] });
       qc.invalidateQueries({ queryKey: ["inventory"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (err) => {
+      // The form is open and the numbers on it are what went wrong, so the
+      // error sits with it rather than in a toast.
+      if (err instanceof ApiClientError && err.code === "INSUFFICIENT_STOCK") {
+        // The warehouse figure on screen is behind what the shelf holds —
+        // pulling it fresh is the next step, so do it and say so.
+        refetchParts();
+        setMoveError({
+          message:
+            "The warehouse doesn't hold that many any more. The counts have been refreshed — check the new figure and try a smaller quantity.",
+        });
+        return;
+      }
+      setMoveError({ message: errorMessage(err), reference: errorReference(err) });
+    },
   });
 
   const selectedPart = (parts ?? []).find((p: any) => p.id === partId);
@@ -60,17 +81,22 @@ export default function TransfersPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
-      <div className="flex items-center gap-3">
-        <CircleButton onDark={false} onClick={() => router.back()} aria-label="Back">
-          <ArrowLeft size={18} />
-        </CircleButton>
-        <div className="min-w-0">
-          <p className="tile-label text-[var(--ink-label)]">Inventory</p>
-          <h1 className="truncate text-2xl font-extrabold tracking-tight text-[var(--ink)]">
-            Move stock
-          </h1>
+      {/* This page is a form over a history list — there is nothing to
+          filter — so the pinned bar is just the identity of the page and the
+          way back. The move panel scrolls with everything else. */}
+      <StickyControls>
+        <div className="flex items-center gap-3">
+          <CircleButton onDark={false} onClick={() => router.back()} aria-label="Back">
+            <ArrowLeft size={18} />
+          </CircleButton>
+          <div className="min-w-0">
+            <p className="tile-label hidden text-[var(--ink-label)] sm:block">Inventory</p>
+            <h1 className="truncate text-xl font-extrabold tracking-tight text-[var(--ink)] sm:text-2xl">
+              Move stock
+            </h1>
+          </div>
         </div>
-      </div>
+      </StickyControls>
 
       <Panel title="Warehouse to shop floor" icon={<ArrowLeftRight size={17} />}>
         <div className="space-y-3.5">
@@ -81,7 +107,10 @@ export default function TransfersPage() {
             ) : (
               <Select
                 value={partId}
-                onChange={(e) => setPartId(e.target.value)}
+                onChange={(e) => {
+                  setPartId(e.target.value);
+                  clearMoveError();
+                }}
                 aria-label="Part to move"
               >
                 <option value="">Pick a part…</option>
@@ -120,7 +149,10 @@ export default function TransfersPage() {
               max={selectedPart?.warehouseStock}
               inputMode="numeric"
               value={qty}
-              onChange={(e) => setQty(e.target.value)}
+              onChange={(e) => {
+                setQty(e.target.value);
+                clearMoveError();
+              }}
               aria-label="Quantity to move"
               className="tabular"
             />
@@ -130,6 +162,16 @@ export default function TransfersPage() {
               </span>
             )}
           </div>
+
+          {moveError && (
+            // Light ground: the panel behind this is forest, and terracotta
+            // ink on forest is unreadable.
+            <InlineError
+              message={moveError.message}
+              reference={moveError.reference}
+              className="bg-[var(--surface-bright)]"
+            />
+          )}
 
           <Button
             variant="secondary"
@@ -163,7 +205,9 @@ export default function TransfersPage() {
           </div>
         ) : isError ? (
           <ErrorState
-            message={(error as Error)?.message ?? "The transfer history didn't load."}
+            title="Couldn't load the transfer history"
+            message={errorMessage(error)}
+            reference={errorReference(error)}
             onRetry={() => refetch()}
           />
         ) : !transfers?.length ? (

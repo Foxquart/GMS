@@ -24,7 +24,7 @@ import {
   IndianRupee,
   NotebookPen,
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { ApiClientError, api, errorMessage, errorReference } from "@/lib/api";
 import {
   Button,
   Input,
@@ -36,6 +36,7 @@ import {
   ErrorState,
   Field,
   HeroPanel,
+  InlineError,
   Panel,
   ResultPanel,
   SectionHeader,
@@ -46,6 +47,7 @@ import {
   Textarea,
   Tile,
   type Tone,
+  RecordBar,
 } from "@/components/ui";
 import { SpotOilCan, SpotTools, VEHICLE_SPOT } from "@/components/illustrations";
 import {
@@ -106,6 +108,20 @@ function LineRow({
   );
 }
 
+/**
+ * The condensed record bar.
+ *
+ * The hero owns the back control, and on a long job it scrolls out of reach —
+ * leaving no way back but the browser gesture. This brings that control back,
+ * with just enough identity to know which job you are still in.
+ *
+ * It lives in a zero-height sticky rail, so it costs nothing until it is
+ * needed: no space is reserved while the hero is on screen, and the bar floats
+ * over the page only once the hero has passed. `top-14` clears the mobile top
+ * bar, `z-20` keeps it under that bar (z-30), the sidebar (z-40) and sheets
+ * (z-50). The negative margins let the fill bleed to the page gutters so rows
+ * do not show through at the edges as they pass under.
+ */
 export default function JobDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -115,6 +131,12 @@ export default function JobDetailPage() {
     queryKey: ["job", id],
     queryFn: () => api<any>(`/api/jobs/${id}`),
   });
+
+  // The hero carries the back control until it scrolls away; from there the
+  // condensed bar takes over. A callback ref (not useRef) because the hero
+  // only mounts once the job has loaded, and the observer has to wait for it.
+  const [heroEl, setHeroEl] = useState<HTMLDivElement | null>(null);
+  const [heroGone, setHeroGone] = useState(false);
 
   const [addPartOpen, setAddPartOpen] = useState(false);
   const [addLabourOpen, setAddLabourOpen] = useState(false);
@@ -127,6 +149,16 @@ export default function JobDetailPage() {
   // The invoice raised by a successful completion — a terminal moment, so the
   // sheet stays open on a ResultPanel for a beat before we hand over the invoice.
   const [issuedInvoice, setIssuedInvoice] = useState<any>(null);
+
+  // Every sheet with a submit button owns its own failure, so the message lands
+  // beside the control that failed instead of in a toast the sheet outlives.
+  const [partError, setPartError] = useState<unknown>(null);
+  const [labourError, setLabourError] = useState<unknown>(null);
+  const [transferError, setTransferError] = useState<unknown>(null);
+  const [statusError, setStatusError] = useState<unknown>(null);
+  const [editError, setEditError] = useState<unknown>(null);
+  const [deleteError, setDeleteError] = useState<unknown>(null);
+  const [completeError, setCompleteError] = useState<unknown>(null);
 
   // add-part form
   const [partId, setPartId] = useState("");
@@ -148,7 +180,12 @@ export default function JobDetailPage() {
   const [payMethod, setPayMethod] = useState("CASH");
   const [payAmount, setPayAmount] = useState("");
 
-  const { data: parts } = useQuery({
+  const {
+    data: parts,
+    isError: partsFailed,
+    error: partsError,
+    refetch: refetchParts,
+  } = useQuery({
     queryKey: ["parts"],
     queryFn: () => api<any[]>("/api/parts"),
   });
@@ -177,12 +214,13 @@ export default function JobDetailPage() {
       }),
     onSuccess: () => {
       toast.success("Part added");
+      setPartError(null);
       setAddPartOpen(false);
       setPartId("");
       setPartQty("1");
       invalidate();
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (err) => setPartError(err),
   });
 
   const removePart = useMutation({
@@ -195,7 +233,9 @@ export default function JobDetailPage() {
       toast.success("Part removed");
       invalidate();
     },
-    onError: (e: any) => toast.error(e.message),
+    // A row-level remove has no sheet of its own to report into, so a toast is
+    // the right surface here.
+    onError: (err) => toast.error(errorMessage(err)),
   });
 
   const addLabour = useMutation({
@@ -206,12 +246,13 @@ export default function JobDetailPage() {
       }),
     onSuccess: () => {
       toast.success("Labour added");
+      setLabourError(null);
       setAddLabourOpen(false);
       setLabourDesc("");
       setLabourAmount("");
       invalidate();
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (err) => setLabourError(err),
   });
 
   const removeLabour = useMutation({
@@ -224,7 +265,7 @@ export default function JobDetailPage() {
       toast.success("Labour removed");
       invalidate();
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (err) => toast.error(errorMessage(err)),
   });
 
   const transfer = useMutation({
@@ -239,11 +280,12 @@ export default function JobDetailPage() {
       }),
     onSuccess: () => {
       toast.success("Stock moved from Warehouse to Shop");
+      setTransferError(null);
       setTransferOpen(false);
       setTransferPart(null);
       invalidate();
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (err) => setTransferError(err),
   });
 
   const setStatus = useMutation({
@@ -254,10 +296,11 @@ export default function JobDetailPage() {
       }),
     onSuccess: (_res, status) => {
       toast.success(status === "CANCELLED" ? "Job cancelled" : "Job reopened");
+      setStatusError(null);
       setCancelOpen(false);
       invalidate();
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (err) => setStatusError(err),
   });
 
   const saveJob = useMutation({
@@ -275,21 +318,23 @@ export default function JobDetailPage() {
       }),
     onSuccess: () => {
       toast.success("Job updated");
+      setEditError(null);
       setEditOpen(false);
       invalidate();
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (err) => setEditError(err),
   });
 
   const removeJob = useMutation({
     mutationFn: () => api(`/api/jobs/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       toast.success("Job deleted");
+      setDeleteError(null);
       setDeleteOpen(false);
       invalidate();
       router.push("/jobs");
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (err) => setDeleteError(err),
   });
 
   const complete = useMutation({
@@ -309,11 +354,26 @@ export default function JobDetailPage() {
     onSuccess: (res: any) => {
       // Terminal outcome: the sheet swaps to a ResultPanel, then hands over
       // to the invoice it just raised.
+      setCompleteError(null);
       setIssuedInvoice(res.invoice);
       invalidate();
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (err) => setCompleteError(err),
   });
+
+  // The bar is revealed at the moment its rail pins, so it never floats loose
+  // in the gap: the mobile top bar is 56px and the rail sits 20px (space-y-5)
+  // below the hero, which puts the meeting point at the hero's bottom edge
+  // crossing 36px. On lg there is no top bar and it arrives those 36px of
+  // scroll early — less than one flick.
+  useEffect(() => {
+    if (!heroEl || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([entry]) => setHeroGone(!entry.isIntersecting), {
+      rootMargin: "-36px 0px 0px 0px",
+    });
+    io.observe(heroEl);
+    return () => io.disconnect();
+  }, [heroEl]);
 
   // Auto-advance to the invoice once the success panel has been seen.
   useEffect(() => {
@@ -322,12 +382,63 @@ export default function JobDetailPage() {
     return () => clearTimeout(t);
   }, [issuedInvoice, router]);
 
+  const errorCode = (err: unknown) => (err instanceof ApiClientError ? err.code : undefined);
+  const isConflict = (err: unknown) => err instanceof ApiClientError && err.status === 409;
+
+  /** Pull the job again — the answer to every conflict on this page. */
+  const refreshJob = () => {
+    setEditError(null);
+    setDeleteError(null);
+    setCompleteError(null);
+    setStatusError(null);
+    setEditOpen(false);
+    setDeleteOpen(false);
+    setCompleteOpen(false);
+    setCancelOpen(false);
+    refetch();
+  };
+
   const moveToShop = (part: any) => {
+    setTransferError(null);
     setTransferPart(part);
     setTransferOpen(true);
   };
 
+  const openAddPart = () => {
+    setPartError(null);
+    setAddPartOpen(true);
+  };
+
+  const openAddLabour = () => {
+    setLabourError(null);
+    setAddLabourOpen(true);
+  };
+
+  const openComplete = () => {
+    setCompleteError(null);
+    setCompleteOpen(true);
+  };
+
+  const openCancel = () => {
+    setStatusError(null);
+    setCancelOpen(true);
+  };
+
+  const openDelete = () => {
+    setDeleteError(null);
+    setDeleteOpen(true);
+  };
+
+  /** Editing any field clears the last failure — a stale error is a lie. */
+  const onEditField =
+    <T,>(set: (value: T) => void) =>
+    (e: { target: { value: T } }) => {
+      setEditError(null);
+      set(e.target.value);
+    };
+
   const openEdit = () => {
+    setEditError(null);
     setEditComplaint(job?.complaint ?? "");
     setEditWorkNotes(job?.workNotes ?? "");
     setEditOdometer(job?.odometerReading ?? "");
@@ -353,19 +464,25 @@ export default function JobDetailPage() {
     );
   }
 
-  if (isError) {
+  // A 404 is not a load failure — the job is gone, and the empty state with a
+  // way back says that better than an error panel.
+  const missing =
+    (isError && error instanceof ApiClientError && error.status === 404) || (!isError && !job);
+
+  if (isError && !missing) {
     return (
       <div className="mx-auto max-w-2xl space-y-5">
         <ErrorState
           title="Couldn't load this job"
-          message={(error as Error)?.message}
+          message={errorMessage(error)}
+          reference={errorReference(error)}
           onRetry={() => refetch()}
         />
       </div>
     );
   }
 
-  if (!job) {
+  if (missing) {
     return (
       <div className="mx-auto max-w-2xl">
         <EmptyState
@@ -399,43 +516,68 @@ export default function JobDetailPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       {/* ── Hero ─────────────────────────────────────────────────────── */}
-      <HeroPanel
-        tone={heroTone}
-        eyebrow={job.jobNumber}
+      <div ref={setHeroEl}>
+        <HeroPanel
+          tone={heroTone}
+          eyebrow={job.jobNumber}
+          title={data.customer?.name ?? "Customer"}
+          subtitle={`${vehicleTypeLabel(vehicleType)} · Opened ${formatDate(job.createdAt)}`}
+          leading={
+            <CircleButton onDark={heroOnDark} onClick={() => router.back()} aria-label="Back">
+              <ArrowLeft size={18} />
+            </CircleButton>
+          }
+          trailing={
+            <>
+              <span className={heroChip}>{jobStatusLabel(job.status)}</span>
+              {job.status === "OPEN" && (
+                <CircleButton onDark={heroOnDark} onClick={openEdit} aria-label="Edit job">
+                  <Pencil size={16} />
+                </CircleButton>
+              )}
+            </>
+          }
+        >
+          <div className="mt-5 flex items-end justify-between gap-3">
+            <div className="flex min-w-0 flex-wrap gap-2">
+              {data.vehicle?.vehicleName && <span className={heroChip}>{data.vehicle.vehicleName}</span>}
+              {data.vehicle?.registrationNumber && (
+                <span className={heroChip}>{data.vehicle.registrationNumber}</span>
+              )}
+              {data.customer?.phone && <span className={heroChip}>{data.customer.phone}</span>}
+            </div>
+            <span
+              aria-hidden="true"
+              className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-[var(--r-tile)] bg-[var(--surface-bright)]"
+            >
+              <Spot size={68} />
+            </span>
+          </div>
+        </HeroPanel>
+      </div>
+
+      {/* ── Condensed record bar — arrives when the hero leaves ─────── */}
+      <RecordBar
+        shown={heroGone}
+        onBack={() => router.back()}
         title={data.customer?.name ?? "Customer"}
-        subtitle={`${vehicleTypeLabel(vehicleType)} · Opened ${formatDate(job.createdAt)}`}
-        leading={
-          <CircleButton onDark={heroOnDark} onClick={() => router.back()} aria-label="Back">
-            <ArrowLeft size={18} />
-          </CircleButton>
-        }
-        trailing={
+        meta={
           <>
-            <span className={heroChip}>{jobStatusLabel(job.status)}</span>
-            {job.status === "OPEN" && (
-              <CircleButton onDark={heroOnDark} onClick={openEdit} aria-label="Edit job">
-                <Pencil size={16} />
-              </CircleButton>
-            )}
+            <span className="tabular">{job.jobNumber}</span> ·{" "}
+            <span className="tabular">{currency(total)}</span>
           </>
         }
-      >
-        <div className="mt-5 flex items-end justify-between gap-3">
-          <div className="flex min-w-0 flex-wrap gap-2">
-            {data.vehicle?.vehicleName && <span className={heroChip}>{data.vehicle.vehicleName}</span>}
-            {data.vehicle?.registrationNumber && (
-              <span className={heroChip}>{data.vehicle.registrationNumber}</span>
-            )}
-            {data.customer?.phone && <span className={heroChip}>{data.customer.phone}</span>}
-          </div>
-          <span
-            aria-hidden="true"
-            className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-[var(--r-tile)] bg-[var(--surface-bright)]"
+        trailing={
+          <Badge
+            color={
+              job.status === "COMPLETED" ? "green" : job.status === "CANCELLED" ? "red" : "amber"
+            }
+            dot
           >
-            <Spot size={68} />
-          </span>
-        </div>
-      </HeroPanel>
+            {jobStatusLabel(job.status)}
+          </Badge>
+        }
+      />
 
       {/* ── The facts ────────────────────────────────────────────────── */}
       <BentoGrid className="grid-cols-3">
@@ -474,7 +616,7 @@ export default function JobDetailPage() {
           icon={<Package size={18} />}
           action={
             !completed ? (
-              <Button size="sm" variant="outline" onClick={() => setAddPartOpen(true)}>
+              <Button size="sm" variant="outline" onClick={openAddPart}>
                 <Plus size={16} /> Add part
               </Button>
             ) : undefined
@@ -513,7 +655,7 @@ export default function JobDetailPage() {
           icon={<Wrench size={18} />}
           action={
             !completed ? (
-              <Button size="sm" variant="outline" onClick={() => setAddLabourOpen(true)}>
+              <Button size="sm" variant="outline" onClick={openAddLabour}>
                 <Plus size={16} /> Add labour
               </Button>
             ) : undefined
@@ -578,7 +720,7 @@ export default function JobDetailPage() {
         </p>
 
         {!completed && (
-          <Button size="lg" variant="secondary" className="mt-5 w-full" onClick={() => setCompleteOpen(true)}>
+          <Button size="lg" variant="secondary" className="mt-5 w-full" onClick={openComplete}>
             <CircleCheckBig size={18} /> Complete job
           </Button>
         )}
@@ -614,7 +756,7 @@ export default function JobDetailPage() {
                 <Button size="sm" variant="outline" onClick={openEdit}>
                   <Pencil size={16} /> Edit job
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => setCancelOpen(true)}>
+                <Button size="sm" variant="outline" onClick={openCancel}>
                   <Ban size={16} /> Cancel job
                 </Button>
               </>
@@ -623,26 +765,46 @@ export default function JobDetailPage() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setStatus.mutate("OPEN")}
+                onClick={() => {
+                  setStatusError(null);
+                  setStatus.mutate("OPEN");
+                }}
                 disabled={setStatus.isPending}
               >
                 <RotateCcw size={16} /> {setStatus.isPending ? "Reopening…" : "Reopen job"}
               </Button>
             )}
-            <Button size="sm" variant="danger" onClick={() => setDeleteOpen(true)}>
+            <Button size="sm" variant="danger" onClick={openDelete}>
               <Trash2 size={16} /> Delete job
             </Button>
           </div>
+
+          {/* A failed reopen has no sheet of its own — report it here, where
+              the button that failed still is. */}
+          {statusError != null && !cancelOpen && (
+            <InlineError
+              className="mt-4"
+              message={errorMessage(statusError)}
+              reference={errorReference(statusError)}
+            />
+          )}
         </Tile>
       )}
 
       {/* ── Edit job sheet ───────────────────────────────────────────── */}
-      <Sheet open={editOpen} onClose={() => setEditOpen(false)} title="Edit job">
+      <Sheet
+        open={editOpen}
+        onClose={() => {
+          setEditOpen(false);
+          setEditError(null);
+        }}
+        title="Edit job"
+      >
         <div className="space-y-4">
           <Field label="Complaint / work">
             <Textarea
               value={editComplaint}
-              onChange={(e) => setEditComplaint(e.target.value)}
+              onChange={onEditField(setEditComplaint)}
               placeholder="e.g. Brake noise at low speed"
               rows={2}
             />
@@ -650,7 +812,7 @@ export default function JobDetailPage() {
           <Field label="Work notes" hint="One line per step reads back as a numbered method.">
             <Textarea
               value={editWorkNotes}
-              onChange={(e) => setEditWorkNotes(e.target.value)}
+              onChange={onEditField(setEditWorkNotes)}
               placeholder="Bled front brakes&#10;Replaced pads&#10;Road tested"
               rows={3}
             />
@@ -658,12 +820,12 @@ export default function JobDetailPage() {
           <Field label="Odometer reading">
             <Input
               value={editOdometer}
-              onChange={(e) => setEditOdometer(e.target.value)}
+              onChange={onEditField(setEditOdometer)}
               placeholder="e.g. 42150"
             />
           </Field>
           <Field label="Vehicle type">
-            <Select value={editVehicleType} onChange={(e) => setEditVehicleType(e.target.value)}>
+            <Select value={editVehicleType} onChange={onEditField(setEditVehicleType)}>
               {VEHICLE_TYPES.map((t) => (
                 <option key={t} value={t}>
                   {vehicleTypeLabel(t)}
@@ -674,7 +836,7 @@ export default function JobDetailPage() {
           <Field label="Vehicle name / model">
             <Input
               value={editVehicleName}
-              onChange={(e) => setEditVehicleName(e.target.value)}
+              onChange={onEditField(setEditVehicleName)}
               placeholder="e.g. Swift / Activa"
             />
           </Field>
@@ -684,10 +846,21 @@ export default function JobDetailPage() {
           >
             <Input
               value={editRegistration}
-              onChange={(e) => setEditRegistration(e.target.value)}
+              onChange={onEditField(setEditRegistration)}
               placeholder="e.g. WB 12 AB 3456"
             />
           </Field>
+          {editError != null && (
+            <div className="space-y-2.5">
+              <InlineError message={errorMessage(editError)} reference={errorReference(editError)} />
+              {isConflict(editError) && (
+                <Button variant="outline" size="sm" onClick={refreshJob}>
+                  <RotateCcw size={14} /> Refresh this job
+                </Button>
+              )}
+            </div>
+          )}
+
           <Button className="w-full" size="lg" onClick={() => saveJob.mutate()} disabled={saveJob.isPending}>
             {saveJob.isPending ? "Saving…" : "Save changes"}
           </Button>
@@ -695,12 +868,33 @@ export default function JobDetailPage() {
       </Sheet>
 
       {/* ── Cancel job confirmation ──────────────────────────────────── */}
-      <Sheet open={cancelOpen} onClose={() => setCancelOpen(false)} title="Cancel this job?">
+      <Sheet
+        open={cancelOpen}
+        onClose={() => {
+          setCancelOpen(false);
+          setStatusError(null);
+        }}
+        title="Cancel this job?"
+      >
         <div className="space-y-4">
           <Tile tone="ochre" className="text-xs font-bold leading-relaxed">
             {job.jobNumber} will be marked cancelled. Nothing is billed and no stock is used — you can
             reopen it later.
           </Tile>
+          {statusError != null && (
+            <div className="space-y-2.5">
+              <InlineError
+                message={errorMessage(statusError)}
+                reference={errorReference(statusError)}
+              />
+              {isConflict(statusError) && (
+                <Button variant="outline" size="sm" onClick={refreshJob}>
+                  <RotateCcw size={14} /> Refresh this job
+                </Button>
+              )}
+            </div>
+          )}
+
           <Button
             className="w-full"
             size="lg"
@@ -717,12 +911,44 @@ export default function JobDetailPage() {
       </Sheet>
 
       {/* ── Delete job confirmation ──────────────────────────────────── */}
-      <Sheet open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Delete this job?">
+      <Sheet
+        open={deleteOpen}
+        onClose={() => {
+          setDeleteOpen(false);
+          setDeleteError(null);
+        }}
+        title="Delete this job?"
+      >
         <div className="space-y-4">
           <Tile tone="terracotta" className="text-xs font-bold leading-relaxed">
             {job.jobNumber} and its parts and labour lines are removed permanently. This cannot be
             undone.
           </Tile>
+          {/* A refused delete means the job moved on — it was finished or
+              invoiced. Point at the invoice rather than repeat the attempt. */}
+          {deleteError != null && (
+            <div className="space-y-2.5">
+              <InlineError
+                message={errorMessage(deleteError)}
+                reference={errorReference(deleteError)}
+              />
+              {isConflict(deleteError) &&
+                (data.invoice ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => router.push(`/invoices/${data.invoice.id}`)}
+                  >
+                    View invoice {data.invoice.invoiceNumber}
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="sm" onClick={refreshJob}>
+                    <RotateCcw size={14} /> Refresh this job
+                  </Button>
+                ))}
+            </div>
+          )}
+
           <Button
             className="w-full"
             size="lg"
@@ -739,7 +965,14 @@ export default function JobDetailPage() {
       </Sheet>
 
       {/* ── Add part sheet ───────────────────────────────────────────── */}
-      <Sheet open={addPartOpen} onClose={() => setAddPartOpen(false)} title="Add part to job">
+      <Sheet
+        open={addPartOpen}
+        onClose={() => {
+          setAddPartOpen(false);
+          setPartError(null);
+        }}
+        title="Add part to job"
+      >
         <div className="space-y-4">
           <div>
             <span className="tile-label mb-1.5 block text-[var(--ink-label)]">Search &amp; select part</span>
@@ -758,7 +991,19 @@ export default function JobDetailPage() {
             </div>
 
             <div className="max-h-56 space-y-1.5 overflow-y-auto rounded-[var(--r-control)] border border-[var(--hairline)] bg-[var(--surface)] p-1.5">
-              {!(parts ?? []).length ? (
+              {partsFailed ? (
+                /* An empty list here would read as "no parts in inventory",
+                   which is a different and untrue thing. */
+                <div className="space-y-2.5 p-2">
+                  <InlineError
+                    message={errorMessage(partsError)}
+                    reference={errorReference(partsError)}
+                  />
+                  <Button variant="outline" size="sm" onClick={() => refetchParts()}>
+                    Try again
+                  </Button>
+                </div>
+              ) : !(parts ?? []).length ? (
                 <p className="p-4 text-center text-xs font-semibold text-[var(--ink-muted)]">
                   No parts in inventory yet.
                 </p>
@@ -775,7 +1020,10 @@ export default function JobDetailPage() {
                       <button
                         key={p.id}
                         type="button"
-                        onClick={() => setPartId(p.id)}
+                        onClick={() => {
+                          setPartId(p.id);
+                          setPartError(null);
+                        }}
                         aria-pressed={selected}
                         className={cn(
                           "flex w-full cursor-pointer items-center justify-between gap-2 rounded-[var(--r-control)] border p-2.5 text-left",
@@ -846,9 +1094,23 @@ export default function JobDetailPage() {
               type="number"
               min={1}
               value={partQty}
-              onChange={(e) => setPartQty(e.target.value)}
+              onChange={(e) => {
+                setPartQty(e.target.value);
+                setPartError(null);
+              }}
             />
           </Field>
+
+          {partError != null && (
+            <div className="space-y-2.5">
+              <InlineError message={errorMessage(partError)} reference={errorReference(partError)} />
+              {isConflict(partError) && (
+                <Button variant="outline" size="sm" onClick={refreshJob}>
+                  <RotateCcw size={14} /> Refresh this job
+                </Button>
+              )}
+            </div>
+          )}
 
           <Button
             className="w-full"
@@ -862,12 +1124,22 @@ export default function JobDetailPage() {
       </Sheet>
 
       {/* ── Add labour sheet ─────────────────────────────────────────── */}
-      <Sheet open={addLabourOpen} onClose={() => setAddLabourOpen(false)} title="Add labour charge">
+      <Sheet
+        open={addLabourOpen}
+        onClose={() => {
+          setAddLabourOpen(false);
+          setLabourError(null);
+        }}
+        title="Add labour charge"
+      >
         <div className="space-y-4">
           <Field label="Description">
             <Input
               value={labourDesc}
-              onChange={(e) => setLabourDesc(e.target.value)}
+              onChange={(e) => {
+                setLabourDesc(e.target.value);
+                setLabourError(null);
+              }}
               placeholder="e.g. Engine tuning / brake service"
             />
           </Field>
@@ -875,10 +1147,27 @@ export default function JobDetailPage() {
             <Input
               type="number"
               value={labourAmount}
-              onChange={(e) => setLabourAmount(e.target.value)}
+              onChange={(e) => {
+                setLabourAmount(e.target.value);
+                setLabourError(null);
+              }}
               placeholder="0.00"
             />
           </Field>
+          {labourError != null && (
+            <div className="space-y-2.5">
+              <InlineError
+                message={errorMessage(labourError)}
+                reference={errorReference(labourError)}
+              />
+              {isConflict(labourError) && (
+                <Button variant="outline" size="sm" onClick={refreshJob}>
+                  <RotateCcw size={14} /> Refresh this job
+                </Button>
+              )}
+            </div>
+          )}
+
           <Button
             className="w-full"
             size="lg"
@@ -891,7 +1180,14 @@ export default function JobDetailPage() {
       </Sheet>
 
       {/* ── Transfer sheet ───────────────────────────────────────────── */}
-      <Sheet open={transferOpen} onClose={() => setTransferOpen(false)} title="Move stock to shop">
+      <Sheet
+        open={transferOpen}
+        onClose={() => {
+          setTransferOpen(false);
+          setTransferError(null);
+        }}
+        title="Move stock to shop"
+      >
         {transferPart && (
           <div className="space-y-4">
             <Tile tone="cream">
@@ -908,6 +1204,29 @@ export default function JobDetailPage() {
                 from the warehouse.
               </p>
             </Tile>
+            {/* The warehouse figure on screen came from the last fetch; if the
+                move is refused, the honest next step is re-reading stock. */}
+            {transferError != null && (
+              <div className="space-y-2.5">
+                <InlineError
+                  message={errorMessage(transferError)}
+                  reference={errorReference(transferError)}
+                />
+                {errorCode(transferError) === "INSUFFICIENT_STOCK" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setTransferError(null);
+                      qc.invalidateQueries({ queryKey: ["parts"] });
+                    }}
+                  >
+                    <RotateCcw size={14} /> Check current stock
+                  </Button>
+                )}
+              </div>
+            )}
+
             <Button
               className="w-full"
               size="lg"
@@ -929,6 +1248,7 @@ export default function JobDetailPage() {
         onClose={() => {
           setCompleteOpen(false);
           setIssuedInvoice(null);
+          setCompleteError(null);
         }}
         title={issuedInvoice ? "Job invoiced" : "Complete job & billing"}
       >
@@ -960,7 +1280,10 @@ export default function JobDetailPage() {
                   type="number"
                   className="h-9 w-28 text-right font-bold"
                   value={discount}
-                  onChange={(e) => setDiscount(e.target.value)}
+                  onChange={(e) => {
+                    setDiscount(e.target.value);
+                    setCompleteError(null);
+                  }}
                   aria-label="Discount in rupees"
                 />
               </div>
@@ -987,7 +1310,10 @@ export default function JobDetailPage() {
                       type="button"
                       role="tab"
                       aria-selected={active}
-                      onClick={() => setPayType(o.id)}
+                      onClick={() => {
+                        setPayType(o.id);
+                        setCompleteError(null);
+                      }}
                       className={cn(
                         "relative isolate flex-1 cursor-pointer rounded-full px-2 py-2 text-xs font-extrabold",
                         "transition-[color] duration-150 ease-out",
@@ -1025,7 +1351,10 @@ export default function JobDetailPage() {
                     <Input
                       type="number"
                       value={payAmount}
-                      onChange={(e) => setPayAmount(e.target.value)}
+                      onChange={(e) => {
+                        setPayAmount(e.target.value);
+                        setCompleteError(null);
+                      }}
                       placeholder="0.00"
                       aria-invalid={partialTooHigh}
                     />
@@ -1042,7 +1371,13 @@ export default function JobDetailPage() {
             {/* Credit records no payment, so there is no method to pick. */}
             {payType !== "credit" && (
               <Field label="Payment method">
-                <Select value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
+                <Select
+                  value={payMethod}
+                  onChange={(e) => {
+                    setPayMethod(e.target.value);
+                    setCompleteError(null);
+                  }}
+                >
                   {PAYMENT_METHODS.map((m) => (
                     <option key={m} value={m}>
                       {paymentMethodLabel(m)}
@@ -1057,6 +1392,35 @@ export default function JobDetailPage() {
                 The full {currency(finalTotal)} goes on the customer&apos;s account as outstanding
                 credit. No payment is recorded now.
               </Tile>
+            )}
+
+            {/* Completion is the one action that can fail for a reason the
+                operator can act on: stock, or someone else finishing the job
+                first. Each gets its own way forward. */}
+            {completeError != null && (
+              <div className="space-y-2.5">
+                <InlineError
+                  message={errorMessage(completeError)}
+                  reference={errorReference(completeError)}
+                />
+                {errorCode(completeError) === "INSUFFICIENT_STOCK" ? (
+                  <Button variant="outline" size="sm" onClick={() => setCompleteOpen(false)}>
+                    <Package size={14} /> Review the parts on this job
+                  </Button>
+                ) : errorCode(completeError) === "JOB_ALREADY_COMPLETED" && data.invoice ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => router.push(`/invoices/${data.invoice.id}`)}
+                  >
+                    View invoice {data.invoice.invoiceNumber}
+                  </Button>
+                ) : isConflict(completeError) ? (
+                  <Button variant="outline" size="sm" onClick={refreshJob}>
+                    <RotateCcw size={14} /> Refresh this job
+                  </Button>
+                ) : null}
+              </div>
             )}
 
             <Button

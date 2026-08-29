@@ -1,6 +1,12 @@
 import { BentoGrid, Skeleton } from "@/components/ui";
 
-/** Hero panel, the six spec tiles, two line sections, notes panel, totals. */
+/**
+ * Hero panel, the six spec tiles, two line sections, notes panel, totals.
+ *
+ * No band for the condensed record bar: that bar sits in a zero-height sticky
+ * rail and only floats in once the hero has scrolled away, so it reserves no
+ * space here or on the loaded page.
+ */
 export default function JobDetailLoading() {
   return (
     <div className="mx-auto max-w-2xl space-y-5" role="status" aria-label="Loading this job">

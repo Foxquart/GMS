@@ -118,7 +118,7 @@ export async function createJob(input: {
     .from(customers)
     .where(eq(customers.id, input.customerId))
     .limit(1);
-  if (!customer) throw new ApiError(404, "Customer not found");
+  if (!customer) throw new ApiError(404, "Customer not found", "NOT_FOUND");
 
   const vehicleId =
     input.vehicleId ??
@@ -194,7 +194,7 @@ export async function getJob(id: string) {
     .from(jobs)
     .where(eq(jobs.id, id))
     .limit(1);
-  if (!job) throw new ApiError(404, "Job not found");
+  if (!job) throw new ApiError(404, "Job not found", "NOT_FOUND");
 
   // Everything below only needs the job row above, not each other. These were
   // five more sequential round trips; they now go out in one wave.
@@ -250,7 +250,7 @@ export async function updateJob(
     .from(jobs)
     .where(eq(jobs.id, id))
     .limit(1);
-  if (!job) throw new ApiError(404, "Job not found");
+  if (!job) throw new ApiError(404, "Job not found", "NOT_FOUND");
 
   const { customerId, vehicleType, vehicleName, registrationNumber, ...jobFields } = input;
   const editsDetails =
@@ -273,10 +273,10 @@ export async function updateJob(
   }
   if (input.status && input.status !== job.status) {
     if (job.status === "COMPLETED") {
-      throw new ApiError(409, "This job is already finished and cannot be changed.");
+      throw new ApiError(409, "This job is already finished and cannot be changed.", "JOB_FINISHED");
     }
     if (input.status === "COMPLETED") {
-      throw new ApiError(409, "Use the complete-job flow to finish a job.");
+      throw new ApiError(409, "Use the complete-job flow to finish a job.", "USE_COMPLETE_FLOW");
     }
     // OPEN → CANCELLED and CANCELLED → OPEN are both fine.
   }
@@ -290,7 +290,7 @@ export async function updateJob(
       .from(customers)
       .where(eq(customers.id, customerId))
       .limit(1);
-    if (!customer) throw new ApiError(404, "Customer not found");
+    if (!customer) throw new ApiError(404, "Customer not found", "NOT_FOUND");
     updates.customerId = customerId;
   }
 
@@ -334,9 +334,9 @@ export async function deleteJob(id: string) {
     .from(jobs)
     .where(eq(jobs.id, id))
     .limit(1);
-  if (!job) throw new ApiError(404, "Job not found");
+  if (!job) throw new ApiError(404, "Job not found", "NOT_FOUND");
   if (job.status === "COMPLETED") {
-    throw new ApiError(409, "This job is already finished and can no longer be deleted.");
+    throw new ApiError(409, "This job is already finished and can no longer be deleted.", "JOB_FINISHED");
   }
 
   const [invoice] = await db
@@ -345,7 +345,7 @@ export async function deleteJob(id: string) {
     .where(eq(invoices.jobId, id))
     .limit(1);
   if (invoice) {
-    throw new ApiError(409, "This job has been invoiced and can no longer be deleted.");
+    throw new ApiError(409, "This job has been invoiced and can no longer be deleted.", "JOB_INVOICED");
   }
 
   // Stock is only deducted when a job is completed, so an unfinished job has no
@@ -371,9 +371,9 @@ async function assertJobEditable(jobId: string) {
     .from(jobs)
     .where(eq(jobs.id, jobId))
     .limit(1);
-  if (!row) throw new ApiError(404, "Job not found");
+  if (!row) throw new ApiError(404, "Job not found", "NOT_FOUND");
   if (isTerminalStatus(row.status)) {
-    throw new ApiError(409, "Cannot modify a finished job.");
+    throw new ApiError(409, "Cannot modify a finished job.", "JOB_FINISHED");
   }
 }
 
@@ -403,7 +403,7 @@ export async function addJobPart(jobId: string, input: { partId: string; quantit
     .from(parts)
     .where(eq(parts.id, input.partId))
     .limit(1);
-  if (!part) throw new ApiError(404, "Part not found");
+  if (!part) throw new ApiError(404, "Part not found", "NOT_FOUND");
 
   const balance = await db
     .select({ quantity: jobParts.quantity })
@@ -449,7 +449,7 @@ export async function saveJobPart(
     .from(parts)
     .where(eq(parts.id, input.partId))
     .limit(1);
-  if (!part) throw new ApiError(404, "Part not found");
+  if (!part) throw new ApiError(404, "Part not found", "NOT_FOUND");
 
   const price = input.unitPrice ?? Number(part.sellingPrice);
   const quantity = Math.max(1, Math.floor(input.quantity));

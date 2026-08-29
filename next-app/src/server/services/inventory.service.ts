@@ -20,7 +20,12 @@ export async function getLocationByCode(code: string) {
     .from(inventoryLocations)
     .where(eq(inventoryLocations.code, code))
     .limit(1);
-  if (!loc) throw new ApiError(500, `Location ${code} not found`);
+  if (!loc) {
+    // Not an ApiError: this is a setup fault, not something the user did or
+    // can act on. handleError logs it against a reference and shows a
+    // generic message rather than leaking the location code.
+    throw new Error(`Inventory location "${code}" is missing — database not seeded?`);
+  }
   return loc;
 }
 
@@ -155,7 +160,7 @@ export async function updateSupplier(
     .set({ ...input, updatedAt: new Date() })
     .where(eq(suppliers.id, id))
     .returning();
-  if (!row) throw new ApiError(404, "Supplier not found");
+  if (!row) throw new ApiError(404, "Supplier not found", "NOT_FOUND");
   return row;
 }
 
@@ -299,7 +304,7 @@ export async function updatePart(id: string, input: Record<string, unknown>) {
     .set({ ...updates, updatedAt: new Date() })
     .where(eq(parts.id, id))
     .returning();
-  if (!row) throw new ApiError(404, "Part not found");
+  if (!row) throw new ApiError(404, "Part not found", "NOT_FOUND");
   return row;
 }
 
@@ -313,7 +318,7 @@ export async function stockIn(input: {
 }) {
   const loc = await getLocationByCode(input.locationCode);
   const part = await getPart(input.partId);
-  if (!part) throw new ApiError(404, "Part not found");
+  if (!part) throw new ApiError(404, "Part not found", "NOT_FOUND");
 
   await db.transaction(async (tx: any) => {
     await changeStock(
@@ -337,7 +342,7 @@ export async function adjustStock(input: {
 }) {
   const loc = await getLocationByCode(input.locationCode);
   const part = await getPart(input.partId);
-  if (!part) throw new ApiError(404, "Part not found");
+  if (!part) throw new ApiError(404, "Part not found", "NOT_FOUND");
 
   await db.transaction(async (tx: any) => {
     const [current] = await tx

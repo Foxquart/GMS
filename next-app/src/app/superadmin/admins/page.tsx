@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Power, ShieldCheck, Trash2, UserPlus, Users } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, errorMessage, errorReference } from "@/lib/api";
 import {
   Badge,
   BentoGrid,
@@ -13,10 +13,12 @@ import {
   EmptyState,
   ErrorState,
   Field,
+  InlineError,
   Input,
   Sheet,
   Skeleton,
   StatTile,
+  StickyControls,
 } from "@/components/ui";
 import { SpotTools } from "@/components/illustrations";
 import { formatWhen } from "../_status";
@@ -27,6 +29,15 @@ export default function SuperadminAdminsPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [createError, setCreateError] = useState<{ message: string; reference?: string } | null>(
+    null,
+  );
+
+  // A stale failure must not be waiting inside a freshly opened sheet.
+  const openCreate = () => {
+    setCreateError(null);
+    setShowCreate(true);
+  };
 
   const { data: admins, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["superadmin-admins"],
@@ -42,12 +53,16 @@ export default function SuperadminAdminsPage() {
     onSuccess: () => {
       toast.success("New Garage Admin account created");
       setShowCreate(false);
+      setCreateError(null);
       setName("");
       setEmail("");
       setPassword("");
       qc.invalidateQueries({ queryKey: ["superadmin-admins"] });
     },
-    onError: (e: any) => toast.error(e.message),
+    // The sheet stays open with the details still in it, so the error goes
+    // where those details are.
+    onError: (err) =>
+      setCreateError({ message: errorMessage(err), reference: errorReference(err) }),
   });
 
   const toggleStatus = useMutation({
@@ -60,7 +75,8 @@ export default function SuperadminAdminsPage() {
       toast.success("Admin account status updated");
       qc.invalidateQueries({ queryKey: ["superadmin-admins"] });
     },
-    onError: (e: any) => toast.error(e.message),
+    // Row action, nothing open to sit beside — a toast is the right scale.
+    onError: (err) => toast.error(errorMessage(err)),
   });
 
   const deleteAdmin = useMutation({
@@ -72,7 +88,7 @@ export default function SuperadminAdminsPage() {
       toast.success("Admin account deleted");
       qc.invalidateQueries({ queryKey: ["superadmin-admins"] });
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (err) => toast.error(errorMessage(err)),
   });
 
   const rows = admins ?? [];
@@ -81,25 +97,30 @@ export default function SuperadminAdminsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-xl font-extrabold tracking-tight text-[var(--ink)] sm:text-2xl">
+      {/* Pinned under the 64px operator bar: the page's identity and the one
+          action it exists for. The strapline and the three count tiles are
+          orientation, not tools — they scroll away with the first rows. */}
+      <StickyControls className="top-16 lg:top-16">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="truncate text-xl font-extrabold tracking-tight text-[var(--ink)] sm:text-2xl">
             Admin accounts
           </h1>
-          <p className="mt-1 text-sm text-[var(--ink-muted)]">
-            Who can sign in to the garage workshop, and with what access.
-          </p>
+          <Button size="md" onClick={openCreate} className="shrink-0">
+            <UserPlus size={16} />
+            New admin
+          </Button>
         </div>
-        <Button size="md" onClick={() => setShowCreate(true)} className="self-start">
-          <UserPlus size={16} />
-          New admin
-        </Button>
-      </div>
+      </StickyControls>
+
+      <p className="text-sm text-[var(--ink-muted)]">
+        Who can sign in to the garage workshop, and with what access.
+      </p>
 
       {isError && !admins ? (
         <ErrorState
           title="Couldn't load the account list"
-          message={(error as Error)?.message ?? "The admins endpoint didn't respond."}
+          message={errorMessage(error)}
+          reference={errorReference(error)}
           onRetry={() => refetch()}
         />
       ) : isLoading ? (
@@ -235,6 +256,7 @@ export default function SuperadminAdminsPage() {
       <Sheet open={showCreate} onClose={() => setShowCreate(false)} title="New garage admin">
         <form
           className="space-y-4"
+          onChange={() => setCreateError(null)}
           onSubmit={(e) => {
             e.preventDefault();
             if (canCreate) createAdmin.mutate();
@@ -243,6 +265,9 @@ export default function SuperadminAdminsPage() {
           <p className="text-sm leading-relaxed text-[var(--ink-muted)]">
             The account is created with the ADMIN role and can sign in immediately.
           </p>
+          {createError && (
+            <InlineError message={createError.message} reference={createError.reference} />
+          )}
           <Field label="Name">
             <Input
               value={name}
