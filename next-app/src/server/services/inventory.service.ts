@@ -1,4 +1,4 @@
-import { aliasedTable, and, desc, eq, inArray, sql } from "drizzle-orm";
+import { aliasedTable, and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { db } from "@/server/db/connection";
 import {
   categories,
@@ -618,6 +618,8 @@ export async function getLowStock() {
     // Emptiest shop floor first — that is what stops a job today.
     .orderBy(sql`coalesce(${shopBal.quantity}, 0)`);
 
+  const usage = await recentUsage(rows.map((r: any) => r.partId));
+
   return rows.map((r: any) => {
     const shopStock = Number(r.shopStock);
     const warehouseStock = Number(r.warehouseStock);
@@ -629,6 +631,47 @@ export async function getLowStock() {
       // instead of leaving the reader to compare four numbers themselves.
       shopShort: shopStock < r.minimumShopStock,
       warehouseShort: warehouseStock < r.minimumWarehouseStock,
+      // Units consumed over the last 30 days. "3 left" is a number; "3 left,
+      // and you got through 14 last month" is a decision.
+      usedLast30Days: usage.get(r.partId) ?? 0,
     };
   });
+}
+
+/** Days of history behind the usage figure shown beside a low-stock part. */
+export const USAGE_WINDOW_DAYS = 30;
+
+/**
+ * Units of each part consumed by completed jobs over the last 30 days.
+ *
+ * The window is deliberately long. A workshop's consumption is lumpy — five
+ * brake pads on one busy Monday and none for a week — so a per-day rate taken
+ * over a day or two is noise, and a "runs out in 2 days" forecast built on it
+ * would be wrong often enough that the owner stops reading the panel. Thirty
+ * days is enough to be a fact about the month rather than a guess about
+ * tomorrow, which is why the UI states it as history and lets the reader draw
+ * the conclusion.
+ */
+async function recentUsage(partIds: string[]) {
+  if (!partIds.length) return new Map<string, number>();
+
+  const since = new Date();
+  since.setDate(since.getDate() - USAGE_WINDOW_DAYS);
+
+  const rows = await db
+    .select({
+      partId: stockMovements.partId,
+      used: sql<number>`coalesce(sum(${stockMovements.quantity} * -1), 0)::int`,
+    })
+    .from(stockMovements)
+    .where(
+      and(
+        eq(stockMovements.movementType, "JOB_USAGE"),
+        gte(stockMovements.createdAt, since),
+        inArray(stockMovements.partId, partIds),
+      ),
+    )
+    .groupBy(stockMovements.partId);
+
+  return new Map<string, number>(rows.map((r: any) => [r.partId, Number(r.used ?? 0)]));
 }

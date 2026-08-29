@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { resetBusinessData, seedCustomerAndPart } from "@/test/helpers";
-import { stockIn } from "@/server/services/inventory.service";
+import { createPart, stockIn } from "@/server/services/inventory.service";
 import { getDashboard } from "@/server/services/report.service";
 
 describe("dashboard stock analytics", () => {
@@ -24,6 +24,20 @@ describe("dashboard stock analytics", () => {
     // Only the booked-in 4 units came through a STOCK_IN movement; the seeded
     // balances were written straight to the ledger.
     expect(summary.stockPurchased).toBe(4 * 250);
+  });
+
+  it("counts every low part, not just the ten the dashboard lists", async () => {
+    // The lowStock rows are capped at ten because that is all the page shows.
+    // The headline count must not inherit that cap — an owner re-ordering
+    // against "10 low" when twelve parts are short would under-buy.
+    for (let i = 0; i < 12; i++) {
+      await createPart({ name: `Short part ${i}`, minimumShopStock: 5 });
+    }
+
+    const { summary, lowStock } = await getDashboard();
+
+    expect(lowStock).toHaveLength(10);
+    expect(summary.lowStockCount).toBe(12);
   });
 
   it("reports zeroes when there is no stock at all", async () => {

@@ -3,6 +3,7 @@ import { db } from "@/server/db/connection";
 import {
   customers as customersTable,
   invoices,
+  jobParts,
   jobs,
   payments,
   stockMovements,
@@ -13,7 +14,9 @@ import {
 } from "@/server/db/schema";
 import { OUTSTANDING_INVOICE_STATUSES } from "./invoice.service";
 
-function periodStart(period: "daily" | "weekly" | "monthly" | "yearly") {
+export type ReportPeriod = "daily" | "weekly" | "monthly" | "yearly";
+
+function periodStart(period: ReportPeriod) {
   const now = new Date();
   const start = new Date(now);
   if (period === "daily") {
@@ -32,7 +35,7 @@ function periodStart(period: "daily" | "weekly" | "monthly" | "yearly") {
   return start;
 }
 
-export async function getReport(period: "daily" | "weekly" | "monthly" | "yearly") {
+export async function getReport(period: ReportPeriod) {
   const start = periodStart(period);
   const now = new Date();
 
@@ -106,6 +109,148 @@ export async function getReport(period: "daily" | "weekly" | "monthly" | "yearly
     jobsCompleted: Number(jobsRow?.total ?? 0),
     invoicesCount: Number(invoicesRow?.total ?? 0),
     partsConsumed: Number(partsRow?.total ?? 0),
+  };
+}
+
+/**
+ * What the workshop consumed, broken down by part.
+ *
+ * Built on `stock_movements` rather than `job_parts` on purpose: the ledger is
+ * what actually left the shelf, and `partsConsumed` in `getReport` already
+ * sums the very same rows — so this breakdown can never disagree with the
+ * total printed above it.
+ *
+ * That also fixes the meaning of "today". A JOB_USAGE row is written when a
+ * job is *completed* (see `completeJob`), not when a part is added to an open
+ * one, so this is "parts on jobs closed in the period". Parts sitting on a job
+ * that is still open have not left the shelf and are deliberately absent.
+ *
+ * Two figures per part, because they are two different questions:
+ *   cost    — purchase price × qty: what today's work took out of inventory.
+ *   charged — what the customer was billed for those parts.
+ * They diverge by the margin, which is the point of showing both.
+ */
+export async function getPartsUsage(period: ReportPeriod, opts?: { limit?: number }) {
+  const start = periodStart(period);
+  const now = new Date();
+
+  // Two passes rather than one join. `job_parts` can legitimately hold more
+  // than one row for the same part on one job, and joining it to the movement
+  // rows would multiply the quantities — the figure that has to stay exact.
+  const [usageRows, chargedRows] = await Promise.all([
+    db
+      .select({
+        partId: parts.id,
+        name: parts.name,
+        partNumber: parts.partNumber,
+        unit: parts.unit,
+        // JOB_USAGE quantities are stored negative, being a deduction.
+        quantity: sql<number>`coalesce(sum(${stockMovements.quantity} * -1), 0)::int`,
+        cost: sql<string>`coalesce(sum(${stockMovements.quantity} * -1 * ${parts.purchasePrice}), 0)`,
+      })
+      .from(stockMovements)
+      .innerJoin(parts, eq(parts.id, stockMovements.partId))
+      .where(
+        and(
+          eq(stockMovements.movementType, "JOB_USAGE"),
+          gte(stockMovements.createdAt, start),
+          lt(stockMovements.createdAt, now),
+        ),
+      )
+      .groupBy(parts.id, parts.name, parts.partNumber, parts.unit)
+      .orderBy(sql`sum(${stockMovements.quantity} * -1) desc`),
+
+    // Scoped by the very movement rows above — `referenceId` on a JOB_USAGE
+    // movement is the job that consumed the part — rather than by re-deriving
+    // the window from `jobs.completedAt`.
+    //
+    // Two reasons. It cannot drift: whatever set of jobs the quantity column
+    // covers, the charged column covers exactly the same ones. And a second
+    // date predicate here would have to compare against
+    // `coalesce(completedAt, createdAt)`, a raw SQL expression — which loses
+    // the column's timestamp type, so drizzle binds the bound as an untyped
+    // literal and the comparison silently drops sub-second precision. That
+    // made this figure wrong whenever two jobs closed inside the same second.
+    db
+      .select({
+        partId: jobParts.partId,
+        charged: sql<string>`coalesce(sum(${jobParts.totalPrice}), 0)`,
+      })
+      .from(jobParts)
+      .where(
+        inArray(
+          jobParts.jobId,
+          db
+            .select({ jobId: stockMovements.referenceId })
+            .from(stockMovements)
+            .where(
+              and(
+                eq(stockMovements.movementType, "JOB_USAGE"),
+                eq(stockMovements.referenceType, "JOB"),
+                gte(stockMovements.createdAt, start),
+                lt(stockMovements.createdAt, now),
+              ),
+            ),
+        ),
+      )
+      .groupBy(jobParts.partId),
+  ]);
+
+  const chargedByPart = new Map<string, number>(
+    chargedRows.map((r: any) => [r.partId, Number(r.charged ?? 0)]),
+  );
+
+  const rows = usageRows.map((r: any) => ({
+    partId: r.partId,
+    name: r.name,
+    partNumber: r.partNumber,
+    unit: r.unit,
+    quantity: Number(r.quantity ?? 0),
+    cost: Number(r.cost ?? 0),
+    charged: chargedByPart.get(r.partId) ?? 0,
+  }));
+
+  const totals = rows.reduce(
+    (acc: { quantity: number; cost: number; charged: number }, r: any) => ({
+      quantity: acc.quantity + r.quantity,
+      cost: acc.cost + r.cost,
+      charged: acc.charged + r.charged,
+    }),
+    { quantity: 0, cost: 0, charged: 0 },
+  );
+
+  return {
+    period,
+    start,
+    end: now,
+    // Totals are computed across every part, then the list is trimmed — so a
+    // limited response still reports the true totals rather than the sum of
+    // the rows it happens to be carrying.
+    totals: { ...totals, distinctParts: rows.length },
+    rows: opts?.limit ? rows.slice(0, opts.limit) : rows,
+  };
+}
+
+/**
+ * How many units of one part have been consumed over each of the three windows
+ * the part page shows. One grouped pass, not three counts.
+ */
+export async function getPartUsage(partId: string) {
+  const [row] = await db
+    .select({
+      today: sql<number>`coalesce(sum(case when ${stockMovements.createdAt} >= ${periodStart("daily")} then ${stockMovements.quantity} * -1 else 0 end), 0)::int`,
+      week: sql<number>`coalesce(sum(case when ${stockMovements.createdAt} >= ${periodStart("weekly")} then ${stockMovements.quantity} * -1 else 0 end), 0)::int`,
+      month: sql<number>`coalesce(sum(case when ${stockMovements.createdAt} >= ${periodStart("monthly")} then ${stockMovements.quantity} * -1 else 0 end), 0)::int`,
+    })
+    .from(stockMovements)
+    .where(
+      and(eq(stockMovements.partId, partId), eq(stockMovements.movementType, "JOB_USAGE")),
+    );
+
+  return {
+    today: Number(row?.today ?? 0),
+    week: Number(row?.week ?? 0),
+    month: Number(row?.month ?? 0),
   };
 }
 
@@ -235,7 +380,7 @@ export async function getDashboard() {
   const warehouseId = warehouse[0]?.id;
 
   // Wave 2 — the queries that genuinely need the location ids above.
-  const [lowStock, warehouseBalances, stockByLocation] = await Promise.all([
+  const [lowStock, lowStockTotal, warehouseBalances, stockByLocation] = await Promise.all([
     db
       .select({
         id: parts.id,
@@ -261,6 +406,25 @@ export async function getDashboard() {
       )
       .orderBy(sql`coalesce(${inventoryBalances.quantity}, 0)`)
       .limit(10),
+    // The rows above stop at ten because that is all the dashboard lists. The
+    // headline count must not: "10 low" when twenty parts are under their
+    // minimum is a number the owner would re-order against and be wrong.
+    db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(parts)
+      .leftJoin(
+        inventoryBalances,
+        and(
+          eq(inventoryBalances.partId, parts.id),
+          eq(inventoryBalances.locationId, shopId ?? ""),
+        ),
+      )
+      .where(
+        and(
+          eq(parts.isArchived, false),
+          sql`coalesce(${inventoryBalances.quantity}, 0) < ${parts.minimumShopStock}`,
+        ),
+      ),
     db
       .select({
         partId: inventoryBalances.partId,
@@ -309,6 +473,7 @@ export async function getDashboard() {
       outstanding: Number(outstanding?.total ?? 0),
       activeJobs: Number(activeJobs?.total ?? 0),
       completedToday: Number(completedToday?.total ?? 0),
+      lowStockCount: Number(lowStockTotal[0]?.total ?? 0),
       stockPurchased: Number(stockPurchased?.total ?? 0),
       shopUnits: Number(shopRow?.units ?? 0),
       shopStockValue: Number(shopRow?.value ?? 0),

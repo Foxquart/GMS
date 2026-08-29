@@ -488,6 +488,42 @@ export default function PartDetailPage() {
         </BentoGrid>
       </section>
 
+      {/* ── Consumption ────────────────────────────────────────────────
+          How fast this part actually leaves, beside how much of it is left.
+          Read off the JOB_USAGE ledger, so it counts parts on jobs that were
+          completed — a job still open has not taken anything off the shelf. */}
+      <section>
+        <SectionHeader title="Used on jobs" icon={<History size={16} />} />
+        <BentoGrid className="grid-cols-3">
+          <StatTile
+            size="sm"
+            tone="bright"
+            label="Today"
+            value={String(part.usage?.today ?? 0)}
+            unit={unit}
+          />
+          <StatTile
+            size="sm"
+            tone="bright"
+            label="This week"
+            value={String(part.usage?.week ?? 0)}
+            unit={unit}
+          />
+          <StatTile
+            size="sm"
+            tone="bright"
+            label="This month"
+            value={String(part.usage?.month ?? 0)}
+            unit={unit}
+          />
+        </BentoGrid>
+        <p className="mt-2 text-xs font-semibold text-[var(--ink-muted)]">
+          {(part.usage?.month ?? 0) > total
+            ? `This month got through more than the ${total} ${unit} on hand.`
+            : "Counted when the job that used them is completed."}
+        </p>
+      </section>
+
       {/* ── Specification ──────────────────────────────────────────── */}
       <section>
         <SectionHeader title="Part details" />

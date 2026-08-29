@@ -13,6 +13,7 @@ import {
   Settings,
   LogOut,
   FileText,
+  ReceiptText,
   Shield,
   ArrowLeftRight,
   AlertTriangle,
@@ -48,6 +49,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/jobs", label: "Jobs", icon: Wrench },
       { href: "/customers", label: "Customers", icon: Users },
       { href: "/invoices", label: "Invoices", icon: FileText },
+      { href: "/reports", label: "Reports", icon: ReceiptText },
     ],
   },
   {

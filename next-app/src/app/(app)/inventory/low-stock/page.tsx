@@ -35,7 +35,29 @@ type LowStockRow = {
   warehouseStock: number;
   shopShort: boolean;
   warehouseShort: boolean;
+  /** Units consumed by completed jobs over the last 30 days. */
+  usedLast30Days: number;
 };
+
+/**
+ * The usage line under a low-stock part.
+ *
+ * Stated as history, never as a forecast. A workshop's consumption is lumpy —
+ * five brake pads on one busy Monday and none for a week — so "runs out in 2
+ * days", extrapolated from a rate like that, would be wrong often enough that
+ * the owner stops believing the whole page. "14 used in the last 30 days"
+ * cannot be wrong, and it is the fact they were going to reorder against
+ * anyway.
+ */
+function usageLine(row: LowStockRow) {
+  const used = row.usedLast30Days ?? 0;
+  if (used <= 0) return "Not used in the last 30 days";
+  const onHand = row.shopStock + row.warehouseStock;
+  const rate = `${used} used in the last 30 days`;
+  // Only worth saying when there is genuinely less on the shelf than the month
+  // just got through — that is the pairing that prompts an order.
+  return onHand < used ? `${rate} · ${onHand} left everywhere` : rate;
+}
 
 export default function LowStockPage() {
   const router = useRouter();
@@ -212,6 +234,12 @@ export default function LowStockPage() {
                           </Badge>
                         )}
                       </div>
+                      {/* What the last month actually got through. "3 left" is
+                          a number; "3 left, and you used 14 last month" is a
+                          decision. */}
+                      <p className="mt-1.5 truncate text-[11px] font-semibold text-[var(--ink-label)]">
+                        {usageLine(r)}
+                      </p>
                     </div>
 
                     <div className="shrink-0 space-y-1 text-right">

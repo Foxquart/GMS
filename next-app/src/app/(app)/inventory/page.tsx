@@ -18,7 +18,7 @@ import {
   Pencil,
   Check,
   ChevronDown,
-  SlidersHorizontal,
+  ChevronLeft,
 } from "lucide-react";
 import { ApiClientError, api, errorMessage, errorReference } from "@/lib/api";
 import { AnimatedDropdown } from "@/components/animated-dropdown";
@@ -176,29 +176,23 @@ function InventoryBrowser() {
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
 
-  // Browsing is the default. Managing categories is a deliberate mode, so the
-  // tiles stay clean until someone asks to edit them.
-  const [editMode, setEditMode] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
 
-  // Leaving edit mode also drops "show archived": browsing never shows archived
-  // categories, so carrying the toggle out of the mode that offers it would
-  // leave the grid narrowed with no visible control explaining why.
-  const toggleEditMode = () => {
-    if (editMode) setShowArchived(false);
-    setEditMode(!editMode);
-  };
-
+  // Archived categories come back with the rest and are filtered here rather
+  // than refetched. Two reasons: toggling the view costs no round trip, and
+  // the count is known — so "Show archived" can hide itself when there is
+  // nothing archived to show instead of being a control that does nothing.
   const categoriesQuery = useQuery({
-    queryKey: ["categories", showArchived],
-    queryFn: () =>
-      api<Category[]>("/api/categories", {
-        params: { archived: showArchived ? "1" : undefined },
-      }),
+    queryKey: ["categories", "all"],
+    queryFn: () => api<Category[]>("/api/categories", { params: { archived: "1" } }),
     ...REFERENCE_QUERY,
   });
-  const categories = categoriesQuery.data;
+  const allCategories = categoriesQuery.data;
+  const archivedCount = (allCategories ?? []).filter((c) => c.isArchived).length;
+  const categories = showArchived
+    ? allCategories
+    : allCategories?.filter((c) => !c.isArchived);
 
   // The drill-down: opening a category is what fetches its sub-categories.
   const subCategoriesQuery = useQuery({
@@ -222,7 +216,7 @@ function InventoryBrowser() {
     placeholderData: keepPreviousData,
   });
 
-  const selectedCategory = (categories ?? []).find((c) => c.id === categoryId);
+  const selectedCategory = (allCategories ?? []).find((c) => c.id === categoryId);
   const selectedSubCategory = (subCategories ?? []).find((s) => s.id === subCategoryId);
 
   // A sub-category id in the URL that this category does not carry would leave
@@ -339,10 +333,10 @@ function InventoryBrowser() {
       api(`/api/categories/${id}`, { method: "PATCH", body: JSON.stringify({ isArchived }) }),
     onSuccess: (_data, vars) => {
       toast.success(vars.isArchived ? "Category archived" : "Category restored");
+      resetCatSheet();
       invalidateCategories();
     },
-    // A tile action with nothing open to put an error next to.
-    onError: (err) => toast.error(errorMessage(err)),
+    onError: (err) => setCatError(asSheetError(err)),
   });
 
   const removeCategory = useMutation({
@@ -532,10 +526,9 @@ function InventoryBrowser() {
       <CategoryPanel
         open={panelOpen}
         onToggleOpen={() => setPanelOpen((v) => !v)}
-        editMode={editMode}
-        onToggleEditMode={toggleEditMode}
         showArchived={showArchived}
         onToggleArchived={() => setShowArchived((v) => !v)}
+        archivedCount={archivedCount}
         query={categoriesQuery}
         categories={categories}
         categoryId={categoryId}
@@ -552,10 +545,6 @@ function InventoryBrowser() {
         }
         onNewCategory={openNewCat}
         onEditCategory={openEditCat}
-        onArchiveCategory={(c) =>
-          setCategoryArchived.mutate({ id: c.id, isArchived: !c.isArchived })
-        }
-        archivePending={setCategoryArchived.isPending}
         onNewSubCategory={openNewSub}
         onEditSubCategory={openEditSub}
       />
@@ -855,6 +844,23 @@ function InventoryBrowser() {
                 {saveCategory.isPending ? "Saving…" : "Save changes"}
               </Button>
 
+              {/* Archiving used to be a button on the tile, which put a rare
+                  action in front of everyone permanently. It belongs with the
+                  other thing you do to a category you are done with. */}
+              <Button
+                variant="outline"
+                className="w-full"
+                disabled={setCategoryArchived.isPending}
+                onClick={() =>
+                  setCategoryArchived.mutate({
+                    id: editingCat.id,
+                    isArchived: !editingCat.isArchived,
+                  })
+                }
+              >
+                {editingCat.isArchived ? "Restore category" : "Archive category"}
+              </Button>
+
               {!catConfirmDelete ? (
                 <button
                   onClick={() => {
@@ -1077,20 +1083,29 @@ function InventoryBrowser() {
     </div>
   );
 }
-
 /**
  * The category grid and, once a category is opened, the sub-categories filed
- * under it. This is the whole of what used to be /inventory/categories: a tile
- * both narrows the parts list below and — in edit mode — is the way to rename,
- * archive or delete the category.
+ * under it — the whole of what used to be /inventory/categories.
+ *
+ * There is no edit mode. There was: a toggle that revealed a pencil and an
+ * Archive button on every tile, plus the only route to creating a
+ * sub-category. It meant four steps of discovery — find the toggle, turn it
+ * on, work out that a tile must be opened, then find the chip — before the
+ * button you wanted existed at all. Nobody thinks "first I enter edit mode";
+ * they think "add a sub-category under Lights".
+ *
+ * So management now lives inside the thing being managed. A tile does one
+ * thing: open the category. Everything about that category — its name, its
+ * sub-categories, archiving it, deleting it — appears once it is open, which
+ * is where someone looking for it would look. The grid stays clean for the
+ * common case, which is browsing.
  */
 function CategoryPanel({
   open,
   onToggleOpen,
-  editMode,
-  onToggleEditMode,
   showArchived,
   onToggleArchived,
+  archivedCount,
   query,
   categories,
   categoryId,
@@ -1103,17 +1118,14 @@ function CategoryPanel({
   onSelectSubCategory,
   onNewCategory,
   onEditCategory,
-  onArchiveCategory,
-  archivePending,
   onNewSubCategory,
   onEditSubCategory,
 }: {
   open: boolean;
   onToggleOpen: () => void;
-  editMode: boolean;
-  onToggleEditMode: () => void;
   showArchived: boolean;
   onToggleArchived: () => void;
+  archivedCount: number;
   query: { isPending: boolean; isError: boolean; error: unknown; refetch: () => void };
   categories: Category[] | undefined;
   categoryId: string;
@@ -1126,8 +1138,6 @@ function CategoryPanel({
   onSelectSubCategory: (id: string) => void;
   onNewCategory: () => void;
   onEditCategory: (c: Category) => void;
-  onArchiveCategory: (c: Category) => void;
-  archivePending: boolean;
   onNewSubCategory: () => void;
   onEditSubCategory: (s: SubCategory) => void;
 }) {
@@ -1154,23 +1164,6 @@ function CategoryPanel({
           </button>
         }
         icon={<Layers size={16} />}
-        action={
-          <button
-            type="button"
-            onClick={onToggleEditMode}
-            aria-pressed={editMode}
-            className={cn(
-              "inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full px-3 text-[11px] font-extrabold",
-              "transition-[background-color,color] duration-150 ease-out",
-              editMode
-                ? "bg-[var(--forest)] text-[var(--ink-on-dark)] hover:bg-[var(--forest-hover)]"
-                : "bg-[var(--surface-sunk)] text-[var(--ink-muted)] hover:text-[var(--ink)]",
-            )}
-          >
-            <SlidersHorizontal size={13} />
-            {editMode ? "Done" : "Edit"}
-          </button>
-        }
       />
 
       {/* Collapsed, the panel still says what the list below is narrowed to —
@@ -1198,31 +1191,6 @@ function CategoryPanel({
         </div>
       ) : (
         <div id="category-panel-body" className="space-y-3.5">
-          {editMode && (
-            <button
-              type="button"
-              role="switch"
-              aria-checked={showArchived}
-              onClick={onToggleArchived}
-              className={cn(
-                "inline-flex h-9 cursor-pointer items-center gap-2 rounded-full px-3.5 text-[11px] font-extrabold",
-                "transition-[background-color,color] duration-150 ease-out",
-                showArchived
-                  ? "bg-[var(--forest)] text-[var(--ink-on-dark)] hover:bg-[var(--forest-hover)]"
-                  : "bg-[var(--surface-sunk)] text-[var(--ink-muted)] hover:text-[var(--ink)]",
-              )}
-            >
-              <span
-                aria-hidden
-                className={cn(
-                  "h-1.5 w-1.5 rounded-full",
-                  showArchived ? "bg-[var(--ochre)]" : "bg-[var(--ink-label)]",
-                )}
-              />
-              Show archived
-            </button>
-          )}
-
           {query.isPending ? (
             <div className="grid grid-cols-2 gap-2.5">
               {Array.from({ length: 4 }).map((_, i) => (
@@ -1236,211 +1204,140 @@ function CategoryPanel({
               reference={errorReference(query.error)}
               onRetry={() => query.refetch()}
             />
-          ) : !categories?.length ? (
-            <EmptyState
-              illustration={<SpotTools size={72} />}
-              title="No categories yet"
-              description="Group parts by what they fit — Royal Enfield, Pulsar — then file the part types under them as sub-categories."
-              action={
-                <Button onClick={onNewCategory}>
-                  <Plus size={16} /> New category
-                </Button>
-              }
-            />
-          ) : (
-            <div className="grid grid-cols-2 gap-2.5">
-              {categories.map((c) => {
-                const active = c.id === categoryId;
-                return (
-                  <div key={c.id} className="relative">
-                    <button
-                      type="button"
-                      onClick={() => onSelectCategory(c.id)}
-                      aria-pressed={active}
-                      className={cn(
-                        "flex h-full w-full cursor-pointer flex-col justify-between gap-2 rounded-[var(--r-tile)] border p-3 text-left",
-                        "min-h-[92px] transition-[background-color,border-color,transform] duration-150 ease-out active:scale-[0.98]",
-                        active
-                          ? "border-[var(--forest)] bg-[var(--sage)]"
-                          : "border-[var(--hairline)] bg-[var(--surface)] hover:border-[var(--hairline-strong)] hover:bg-[var(--surface-sunk)]",
-                        c.isArchived && !active && "opacity-60",
-                        // Room for the pencil, only when there is one.
-                        editMode && "pr-10",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "line-clamp-2 text-sm font-extrabold leading-snug",
-                          active ? "text-[var(--forest)]" : "text-[var(--ink)]",
-                        )}
-                      >
-                        {c.name}
-                      </span>
-                      <span className="flex flex-wrap items-center gap-1.5">
-                        <Badge color={active ? "green" : "gray"}>
-                          {c.partsCount} {c.partsCount === 1 ? "part" : "parts"}
-                        </Badge>
-                        {c.subCategoryCount > 0 && (
-                          <Badge color="slate">
-                            <Tags size={11} />
-                            {c.subCategoryCount}
-                          </Badge>
-                        )}
-                        {c.isArchived && <Badge color="gray">Archived</Badge>}
-                      </span>
-                    </button>
+          ) : selectedCategory ? (
+            /* ── Inside one category ─────────────────────────────────
+               The grid folds away rather than staying above this. Measured on
+               a 360x640 phone: with eight categories the tiles are ~460px, so
+               leaving them up pushed the parts list — the thing picking a
+               category was meant to change — off the bottom of the screen.
+               You tapped a tile and nothing you could see happened. Collapsed,
+               the list rises about 400px and lands under your thumb, and the
+               search, location and stock filters stay exactly where they were,
+               which a separate page would have had to rebuild or drop. */
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => onSelectCategory(selectedCategory.id)}
+                className={cn(
+                  "-ml-1.5 inline-flex cursor-pointer items-center gap-1 rounded-full px-1.5 py-1 text-xs font-bold",
+                  "text-[var(--ink-muted)] transition-colors duration-150 ease-out hover:text-[var(--ink)]",
+                )}
+              >
+                <ChevronLeft size={14} />
+                All categories
+              </button>
 
-                    {/* A sibling of the tile, not a child — a button cannot be
-                        nested inside a button. */}
-                    {editMode && (
-                      <button
-                        type="button"
-                        onClick={() => onEditCategory(c)}
-                        aria-label={`Edit ${c.name}`}
-                        className={cn(
-                          "absolute right-2 top-2 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full",
-                          "bg-[var(--surface-bright)] text-[var(--ink-label)] shadow-[var(--lift-1)]",
-                          "transition-[background-color,color] duration-150 ease-out",
-                          "hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)]",
-                        )}
-                      >
-                        <Pencil size={13} />
-                      </button>
-                    )}
-
-                    {editMode && (
-                      <button
-                        type="button"
-                        onClick={() => onArchiveCategory(c)}
-                        disabled={archivePending}
-                        className={cn(
-                          "absolute bottom-2 right-2 cursor-pointer rounded-full px-2 py-1 text-[10px] font-extrabold",
-                          "bg-[var(--surface-bright)] text-[var(--ink-label)] shadow-[var(--lift-1)]",
-                          "transition-[background-color,color] duration-150 ease-out",
-                          "hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)]",
-                          "disabled:pointer-events-none disabled:opacity-45",
-                        )}
-                      >
-                        {c.isArchived ? "Restore" : "Archive"}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-
-              {editMode && (
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="flex items-center gap-2 text-base font-extrabold text-[var(--ink)]">
+                    <span className="truncate">{selectedCategory.name}</span>
+                    {selectedCategory.isArchived && <Badge color="gray">Archived</Badge>}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs font-semibold text-[var(--ink-muted)]">
+                    {selectedCategory.partsCount}{" "}
+                    {selectedCategory.partsCount === 1 ? "part" : "parts"} ·{" "}
+                    {selectedCategory.subCategoryCount} sub-categor
+                    {selectedCategory.subCategoryCount === 1 ? "y" : "ies"}
+                  </p>
+                </div>
                 <button
                   type="button"
-                  onClick={onNewCategory}
+                  onClick={() => onEditCategory(selectedCategory)}
                   className={cn(
-                    "flex min-h-[92px] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-[var(--r-tile)]",
-                    "border border-dashed border-[var(--hairline-strong)] bg-[var(--surface)] p-3",
-                    "text-[var(--ink-muted)] transition-[background-color,color] duration-150 ease-out",
-                    "hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)] active:scale-[0.98]",
+                    "inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-3 text-[11px] font-extrabold",
+                    "bg-[var(--surface-sunk)] text-[var(--ink-muted)]",
+                    "transition-[background-color,color] duration-150 ease-out",
+                    "hover:bg-[var(--hairline)] hover:text-[var(--ink)]",
                   )}
                 >
-                  <Plus size={18} />
-                  <span className="text-xs font-extrabold">New category</span>
+                  <Pencil size={12} /> Edit
                 </button>
-              )}
-            </div>
-          )}
-
-          {/* ── Sub-categories of the open category ───────────────── */}
-          {categoryId && selectedCategory && (
-            <div className="border-t border-[var(--hairline)] pt-3.5">
-              <div className="mb-2.5 flex items-center justify-between gap-3">
-                <p className="tile-label flex min-w-0 items-center gap-1.5 text-[var(--ink-label)]">
-                  <Tags size={13} />
-                  <span className="truncate">Sub-categories in {selectedCategory.name}</span>
-                </p>
-                {subCategoryId && (
-                  <button
-                    type="button"
-                    onClick={() => onSelectSubCategory(subCategoryId)}
-                    className="shrink-0 cursor-pointer text-xs font-bold text-[var(--ink-muted)] underline underline-offset-2 hover:text-[var(--ink)]"
-                  >
-                    Clear
-                  </button>
-                )}
               </div>
 
-              {subCategoriesQuery.isPending ? (
-                <div className="flex flex-wrap gap-2">
-                  {Array.from({ length: 3 }).map((_, i) => (
-                    <Skeleton key={i} className="h-9 w-28 rounded-full" />
-                  ))}
-                </div>
-              ) : subCategoriesQuery.isError ? (
-                <div className="flex items-center justify-between gap-3 text-xs font-semibold text-[var(--ink-muted)]">
-                  <span>Couldn&apos;t load these sub-categories.</span>
-                  <button
-                    onClick={() => subCategoriesQuery.refetch()}
-                    className="cursor-pointer font-bold text-[var(--ink)] underline underline-offset-2"
-                  >
-                    Try again
-                  </button>
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {!subCategories?.length && (
-                    <p className="text-xs font-semibold text-[var(--ink-muted)]">
-                      {editMode
-                        ? `Nothing yet — add the part types that fit ${selectedCategory.name}.`
-                        : `No sub-categories under ${selectedCategory.name} yet.`}
-                    </p>
+              <div className="space-y-2.5 border-t border-[var(--hairline)] pt-3">
+                <p className="tile-label flex items-center gap-1.5 text-[var(--ink-label)]">
+                  <Tags size={13} />
+                  Sub-categories
+                  {subCategoryId && (
+                    <button
+                      type="button"
+                      onClick={() => onSelectSubCategory(subCategoryId)}
+                      className="ml-auto cursor-pointer text-xs font-bold normal-case tracking-normal text-[var(--ink-muted)] underline underline-offset-2 hover:text-[var(--ink)]"
+                    >
+                      Clear
+                    </button>
                   )}
+                </p>
 
-                  {subCategories?.map((s) => {
-                    const active = s.id === subCategoryId;
-                    // A sub-category shared with other categories is the normal
-                    // case here, and worth saying — it is why editing one shows
-                    // up everywhere it is filed.
-                    const shared = s.categories.length > 1;
-                    return (
-                      <span key={s.id} className="inline-flex items-center">
-                        <button
-                          type="button"
-                          onClick={() => onSelectSubCategory(s.id)}
-                          aria-pressed={active}
-                          title={
-                            shared
-                              ? `Also in ${s.categories
-                                  .filter((c) => c.id !== categoryId)
-                                  .map((c) => c.name)
-                                  .join(", ")}`
-                              : undefined
-                          }
-                          className={cn(
-                            "inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-full border px-3.5 text-xs font-extrabold",
-                            "transition-[background-color,border-color,color] duration-150 ease-out",
-                            editMode ? "rounded-r-none border-r-0 pr-2.5" : "",
-                            active
-                              ? "border-[var(--forest)] bg-[var(--forest)] text-[var(--ink-on-dark)]"
-                              : "border-[var(--hairline)] bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--surface-sunk)]",
-                          )}
-                        >
-                          <span className="max-w-[12rem] truncate">{s.name}</span>
-                          <span
+                {subCategoriesQuery.isPending ? (
+                  <div className="flex flex-wrap gap-2">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <Skeleton key={i} className="h-9 w-28 rounded-full" />
+                    ))}
+                  </div>
+                ) : subCategoriesQuery.isError ? (
+                  <div className="flex items-center justify-between gap-3 text-xs font-semibold text-[var(--ink-muted)]">
+                    <span>Couldn&apos;t load these sub-categories.</span>
+                    <button
+                      onClick={() => subCategoriesQuery.refetch()}
+                      className="cursor-pointer font-bold text-[var(--ink)] underline underline-offset-2"
+                    >
+                      Try again
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {subCategories?.map((s) => {
+                      const active = s.id === subCategoryId;
+                      // A sub-category shared with other categories is the
+                      // normal case here, and worth saying — it is why editing
+                      // one shows up everywhere it is filed.
+                      const shared = s.categories.length > 1;
+                      return (
+                        <span key={s.id} className="inline-flex items-center">
+                          <button
+                            type="button"
+                            onClick={() => onSelectSubCategory(s.id)}
+                            aria-pressed={active}
+                            title={
+                              shared
+                                ? `Also in ${s.categories
+                                    .filter((c) => c.id !== categoryId)
+                                    .map((c) => c.name)
+                                    .join(", ")}`
+                                : undefined
+                            }
                             className={cn(
-                              "numeral text-[11px] leading-none",
-                              active ? "text-[var(--sage)]" : "text-[var(--ink-label)]",
+                              "inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-full rounded-r-none border border-r-0 py-1 pl-3.5 pr-2.5 text-xs font-extrabold",
+                              "transition-[background-color,border-color,color] duration-150 ease-out",
+                              active
+                                ? "border-[var(--forest)] bg-[var(--forest)] text-[var(--ink-on-dark)]"
+                                : "border-[var(--hairline)] bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--surface-sunk)]",
                             )}
                           >
-                            {s.partsCount}
-                          </span>
-                          {shared && (
+                            <span className="max-w-[12rem] truncate">{s.name}</span>
                             <span
-                              aria-hidden
-                              title="Filed under more than one category"
                               className={cn(
-                                "h-1.5 w-1.5 rounded-full",
-                                active ? "bg-[var(--ochre)]" : "bg-[var(--forest)]/45",
+                                "numeral text-[11px] leading-none",
+                                active ? "text-[var(--sage)]" : "text-[var(--ink-label)]",
                               )}
-                            />
-                          )}
-                        </button>
-                        {editMode && (
+                            >
+                              {s.partsCount}
+                            </span>
+                            {shared && (
+                              <span
+                                aria-hidden
+                                className={cn(
+                                  "h-1.5 w-1.5 rounded-full",
+                                  active ? "bg-[var(--ochre)]" : "bg-[var(--forest)]/45",
+                                )}
+                              />
+                            )}
+                          </button>
+                          {/* Welded to the chip rather than hidden behind a
+                              mode: renaming a sub-category, or filing it under
+                              a second bike, is the whole point of it being one
+                              row instead of two. */}
                           <button
                             type="button"
                             onClick={() => onEditSubCategory(s)}
@@ -1455,12 +1352,10 @@ function CategoryPanel({
                           >
                             <Pencil size={12} />
                           </button>
-                        )}
-                      </span>
-                    );
-                  })}
+                        </span>
+                      );
+                    })}
 
-                  {editMode && (
                     <button
                       type="button"
                       onClick={onNewSubCategory}
@@ -1471,12 +1366,83 @@ function CategoryPanel({
                         "hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)]",
                       )}
                     >
-                      <Plus size={14} /> New sub-category
+                      <Plus size={14} /> Add sub-category
                     </button>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
             </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-2.5">
+                {categories?.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => onSelectCategory(c.id)}
+                    className={cn(
+                      "flex h-full min-h-[92px] w-full cursor-pointer flex-col justify-between gap-2 rounded-[var(--r-tile)] border p-3 text-left",
+                      "border-[var(--hairline)] bg-[var(--surface)]",
+                      "transition-[background-color,border-color,transform] duration-150 ease-out active:scale-[0.98]",
+                      "hover:border-[var(--hairline-strong)] hover:bg-[var(--surface-sunk)]",
+                      c.isArchived && "opacity-60",
+                    )}
+                  >
+                    <span className="line-clamp-2 text-sm font-extrabold leading-snug text-[var(--ink)]">
+                      {c.name}
+                    </span>
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <Badge color="gray">
+                        {c.partsCount} {c.partsCount === 1 ? "part" : "parts"}
+                      </Badge>
+                      {c.subCategoryCount > 0 && (
+                        <Badge color="slate">
+                          <Tags size={11} />
+                          {c.subCategoryCount}
+                        </Badge>
+                      )}
+                      {c.isArchived && <Badge color="gray">Archived</Badge>}
+                    </span>
+                  </button>
+                ))}
+
+                {/* Always present, never behind a mode. An empty grid still
+                    shows it, so a workshop with no categories yet has the one
+                    thing it needs rather than an illustration and a CTA that
+                    say the same thing in more space. */}
+                <button
+                  type="button"
+                  onClick={onNewCategory}
+                  className={cn(
+                    "flex min-h-[92px] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-[var(--r-tile)]",
+                    "border border-dashed border-[var(--hairline-strong)] bg-[var(--surface)] p-3",
+                    "text-[var(--ink-muted)] transition-[background-color,color] duration-150 ease-out",
+                    "hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)] active:scale-[0.98]",
+                  )}
+                >
+                  <Plus size={18} />
+                  <span className="text-xs font-extrabold">New category</span>
+                </button>
+              </div>
+
+              {/* Offered only when there is something archived to show. A
+                  toggle that reveals nothing is a control that teaches you to
+                  ignore controls. */}
+              {(archivedCount > 0 || showArchived) && (
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={showArchived}
+                  onClick={onToggleArchived}
+                  className={cn(
+                    "cursor-pointer text-xs font-bold underline underline-offset-2",
+                    "text-[var(--ink-label)] transition-colors duration-150 ease-out hover:text-[var(--ink)]",
+                  )}
+                >
+                  {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
+                </button>
+              )}
+            </>
           )}
         </div>
       )}
