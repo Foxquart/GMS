@@ -7,6 +7,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!session) {
     redirect("/login");
   }
+  // A superadmin operates the platform, not a workshop. The console is the
+  // whole of their app, so every page in here sends them back to it.
+  if (session.role.toUpperCase() === "SUPERADMIN") {
+    redirect("/superadmin");
+  }
 
   return (
     <div className="min-h-screen bg-[var(--canvas)] text-[var(--ink)]">

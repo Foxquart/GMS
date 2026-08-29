@@ -108,15 +108,18 @@ export async function getSession(): Promise<SessionPayload | null> {
 
     if (!u || !u.isActive) return null;
 
-    const effectiveRole =
-      u.email === "admin@garage.com" || u.email === "superadmin@garage.com"
-        ? "SUPERADMIN"
-        : (u.role || String(payload.role)).toUpperCase();
-
+    // The stored role is the only authority. This used to promote two seed
+    // addresses to SUPERADMIN by email, which meant a role changed in the
+    // database — or through the Admins screen — was silently ignored here:
+    // that screen showed ADMIN while /api/auth/me kept answering SUPERADMIN,
+    // and the session went on being granted operator access.
+    //
+    // Read from the row rather than the token, so a demotion takes effect on
+    // the next request instead of when a seven-day cookie happens to expire.
     return {
       userId: String(payload.userId),
       email: u.email || String(payload.email),
-      role: effectiveRole,
+      role: (u.role || String(payload.role ?? "ADMIN")).toUpperCase(),
     };
   } catch {
     return null;

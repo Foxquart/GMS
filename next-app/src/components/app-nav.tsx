@@ -13,7 +13,6 @@ import {
   Settings,
   LogOut,
   FileText,
-  Shield,
   Layers,
   Truck,
   History,
@@ -135,9 +134,6 @@ export function AppNav() {
     href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/"),
   ).sort((a, b) => b.length - a.length)[0];
 
-  const isSuperadmin = user?.role?.toUpperCase() === "SUPERADMIN";
-  const superadminActive = pathname.startsWith("/superadmin");
-
   const closeDrawer = useCallback(() => {
     setDrawerOpen(false);
     triggerRef.current?.focus(); // focus returns to what opened it (WCAG 2.4.3)
@@ -217,26 +213,6 @@ export function AppNav() {
         </div>
       ))}
 
-      {isSuperadmin && (
-        <div className="space-y-0.5">
-          <p className="tile-label px-4 pb-1.5 text-[var(--ink-label)]">Platform</p>
-          <Link
-            href="/superadmin"
-            onClick={onNavigate}
-            aria-current={superadminActive ? "page" : undefined}
-            className={cn(
-              "flex items-center gap-3 rounded-[var(--r-control)] px-4 py-2.5 text-sm font-bold",
-              "transition-[background-color,color] duration-150 ease-out",
-              superadminActive
-                ? "bg-[var(--ochre)] text-[var(--forest-deep)]"
-                : "text-[var(--ink-muted)] hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)]",
-            )}
-          >
-            <Shield size={18} className="shrink-0" />
-            <span className="truncate">Superadmin</span>
-          </Link>
-        </div>
-      )}
     </nav>
   );
 
