@@ -142,13 +142,23 @@ const TONE_INK: Record<Tone, string> = {
   ochre: "text-[var(--forest-deep)]",
 };
 
+/**
+ * The caption tier for each fill.
+ *
+ * On the coloured fills this used to be the body ink at 65–75% opacity, which
+ * measured 3.5–3.6:1 against the fill underneath — below the 4.5:1 that 10px
+ * caps and 11px footnotes need. There is no muted ink to reach for on a solid
+ * accent, so on those tones the caption runs at full strength and the tier is
+ * carried by size and letterspacing instead. Sage is pale enough to keep a
+ * little transparency and still clear the bar at 80%.
+ */
 const TONE_LABEL: Record<Tone, string> = {
   cream: "text-[var(--ink-label)]",
   bright: "text-[var(--ink-label)]",
-  sage: "text-[var(--forest)]/65",
+  sage: "text-[var(--forest)]/80",
   forest: "text-[var(--ink-on-dark-muted)]",
-  terracotta: "text-[#fdf6f2]/75",
-  ochre: "text-[var(--forest-deep)]/70",
+  terracotta: "text-[#fdf6f2]",
+  ochre: "text-[var(--forest-deep)]",
 };
 
 /** A colour-blocked tile — the basic building block of every bento grid. */
@@ -171,6 +181,17 @@ export const Tile = ({
 /**
  * Tiny caps label over a large numeral — the figure is the hero, the label
  * is a whisper. `value` stays on one line; long values shrink rather than wrap.
+ *
+ * `size="sm"` is the same tile with every dimension pulled in — smaller
+ * numeral, tighter padding, quieter footnote. It exists for grids that carry
+ * enough tiles that the default numeral would push the last row off the fold;
+ * the dashboard uses it so eight figures fit where five used to.
+ *
+ * The figure never wraps. It used to be allowed to, on tall tiles, on the
+ * theory that two lines beat truncation — but a number broken across lines
+ * reads as two numbers ("₹1,72," over "000.00"), which is worse than either.
+ * Hand the value through `currencyFit` with this tile's width budget and it
+ * arrives already short enough to fit on one.
  */
 export const StatTile = ({
   label,
@@ -179,6 +200,7 @@ export const StatTile = ({
   footnote,
   icon,
   tone = "cream",
+  size = "md",
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & {
@@ -188,23 +210,52 @@ export const StatTile = ({
   footnote?: React.ReactNode;
   icon?: React.ReactNode;
   tone?: Tone;
-}) => (
-  <Tile tone={tone} className={cn("flex flex-col justify-between gap-3", className)} {...props}>
-    <div className="flex items-start justify-between gap-2">
-      <span className={cn("tile-label", TONE_LABEL[tone])}>{label}</span>
-      {icon && <span className={cn("shrink-0 opacity-45", TONE_INK[tone])}>{icon}</span>}
-    </div>
-    <div>
-      <div className="flex items-baseline gap-1.5">
-        <span className="numeral truncate text-[clamp(1.75rem,7vw,2.5rem)]">{value}</span>
-        {unit && <span className={cn("text-[11px] font-bold", TONE_LABEL[tone])}>{unit}</span>}
+  size?: "md" | "sm";
+}) => {
+  const sm = size === "sm";
+  return (
+    <Tile
+      tone={tone}
+      className={cn("flex flex-col justify-between", sm ? "gap-2 p-3" : "gap-3", className)}
+      {...props}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className={cn("tile-label", sm && "text-[9px] tracking-[0.1em]", TONE_LABEL[tone])}>
+          {label}
+        </span>
+        {icon && <span className={cn("shrink-0 opacity-45", TONE_INK[tone])}>{icon}</span>}
       </div>
-      {footnote && (
-        <p className={cn("mt-1 text-xs font-semibold leading-tight", TONE_LABEL[tone])}>{footnote}</p>
-      )}
-    </div>
-  </Tile>
-);
+      <div>
+        <div className="flex items-baseline gap-1.5">
+          <span
+            className={cn(
+              "numeral truncate",
+              sm ? "text-[clamp(1.25rem,5vw,1.75rem)]" : "text-[clamp(1.75rem,7vw,2.5rem)]",
+            )}
+          >
+            {value}
+          </span>
+          {unit && (
+            <span className={cn(sm ? "text-[10px]" : "text-[11px]", "font-bold", TONE_LABEL[tone])}>
+              {unit}
+            </span>
+          )}
+        </div>
+        {footnote && (
+          <p
+            className={cn(
+              "font-semibold leading-tight",
+              sm ? "mt-0.5 text-[11px]" : "mt-1 text-xs",
+              TONE_LABEL[tone],
+            )}
+          >
+            {footnote}
+          </p>
+        )}
+      </div>
+    </Tile>
+  );
+};
 
 /** Small fact tile: icon, caps label, bold value. Used in detail-page grids. */
 export const SpecTile = ({
@@ -467,7 +518,7 @@ export const Badge = ({
       color === "slate" && "bg-[var(--surface-sunk)] text-[var(--ink-muted)]",
       color === "blue" && "bg-[var(--sage)] text-[var(--forest)]",
       color === "green" && "bg-[var(--forest)] text-[var(--ink-on-dark)]",
-      color === "amber" && "bg-[var(--ochre)]/22 text-[#8a6a10]",
+      color === "amber" && "bg-[var(--ochre)]/22 text-[var(--ochre-ink)]",
       color === "red" && "bg-[var(--terracotta)]/15 text-[var(--terracotta-hover)]",
       color === "gray" && "bg-[var(--surface-sunk)] text-[var(--ink-label)]",
       className,

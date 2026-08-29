@@ -5,7 +5,9 @@ import {
   listParts,
   createPart,
   updatePart,
+  getPart,
 } from "@/server/services/inventory.service";
+import { assertSubCategoryInCategory } from "@/server/services/subcategory.service";
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,6 +17,7 @@ export async function GET(request: NextRequest) {
       await listParts({
         q: sp.get("q") ?? undefined,
         categoryId: sp.get("categoryId") ?? undefined,
+        subCategoryId: sp.get("subCategoryId") ?? undefined,
         includeArchived: sp.get("archived") === "1",
       }),
     );
@@ -29,10 +32,18 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const name = String(body?.name ?? "").trim();
     if (!name) throw new ApiError(400, "Part name is required");
+
+    const categoryId = body?.categoryId || undefined;
+    const subCategoryId = body?.subCategoryId || undefined;
+    // A sub-category is always read inside a category, so the two columns are
+    // never allowed to disagree about where the part sits.
+    if (subCategoryId) await assertSubCategoryInCategory(String(subCategoryId), categoryId);
+
     return ok(
       await createPart({
         name,
-        categoryId: body?.categoryId || undefined,
+        categoryId,
+        subCategoryId,
         supplierId: body?.supplierId || undefined,
         partNumber: body?.partNumber || undefined,
         brand: body?.brand || undefined,
@@ -64,6 +75,7 @@ export async function PATCH(request: NextRequest) {
     for (const key of [
       "name",
       "categoryId",
+      "subCategoryId",
       "supplierId",
       "partNumber",
       "brand",
@@ -81,6 +93,29 @@ export async function PATCH(request: NextRequest) {
     for (const key of ["minimumShopStock", "minimumWarehouseStock"]) {
       if (body[key] !== undefined) updates[key] = Number(body[key]);
     }
+
+    // Blank means "clear it"; anything else has to be checked against the
+    // category the part will end up in, which may itself be part of this patch.
+    if (updates.subCategoryId !== undefined) {
+      const subCategoryId = updates.subCategoryId ? String(updates.subCategoryId) : null;
+      updates.subCategoryId = subCategoryId;
+      if (subCategoryId) {
+        const categoryId =
+          updates.categoryId !== undefined
+            ? (updates.categoryId as string | null)
+            : ((await getPart(String(body.id)))?.categoryId ?? null);
+        await assertSubCategoryInCategory(subCategoryId, categoryId);
+      }
+    }
+    // Moving a part to a different category strands whatever sub-category it
+    // had, so it is dropped rather than left pointing somewhere it is not filed.
+    if (updates.categoryId !== undefined && updates.subCategoryId === undefined) {
+      const current = await getPart(String(body.id));
+      if (current?.subCategoryId && current.categoryId !== (updates.categoryId || null)) {
+        updates.subCategoryId = null;
+      }
+    }
+
     return ok(await updatePart(String(body.id), updates));
   } catch (err) {
     return handleError(err);

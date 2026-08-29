@@ -228,9 +228,9 @@ export default function SettingsPage() {
       </Card>
 
       {/* One save affordance, with every state designed: idle, dirty,
-          pending and just-saved. There is no bottom nav to clear any more, so
-          it sticks to the viewport edge — the padding below the card is what
-          keeps it off that edge, and it absorbs the safe-area inset. */}
+          pending and just-saved. It sticks to the viewport edge; the padding
+          below is what lifts it clear of the floating tab bar on mobile and
+          off the edge (plus the safe-area inset) everywhere else. */}
       <div className="sticky bottom-0 z-30 -mx-1 space-y-2 pt-2 pb-[calc(var(--nav-inset)+0.75rem)]">
         {saveError && (
           <InlineError

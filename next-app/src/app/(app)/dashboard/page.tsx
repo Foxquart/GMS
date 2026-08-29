@@ -16,9 +16,12 @@ import {
   ClipboardList,
   ReceiptText,
   CircleCheckBig,
+  ShoppingCart,
+  Warehouse,
+  Store,
 } from "lucide-react";
 import { api, errorMessage, errorReference } from "@/lib/api";
-import { currency, formatDate, invoiceStatusLabel } from "@/lib/format";
+import { currency, currencyFit, formatDate, invoiceStatusLabel } from "@/lib/format";
 import {
   Badge,
   BentoGrid,
@@ -45,6 +48,31 @@ const PERIODS = [
 ] as const;
 
 type PeriodId = (typeof PERIODS)[number]["id"];
+
+/** Plain grouped count — units on a shelf are never fractional. */
+const units = (n: number | null | undefined) => Number(n ?? 0).toLocaleString("en-IN");
+
+/**
+ * Geometry for the two lead tiles — today's takings, and the one thing on the
+ * shelves that wants a decision. One string applied to both, so "same height"
+ * is a property of the pair rather than two numbers that happen to agree:
+ * change it once and they move together. The height is deliberate too — these
+ * two are read from across the counter, the six below them are read when you
+ * go looking.
+ */
+const HERO_TILE = "min-h-[9.5rem] justify-between gap-3 p-4";
+
+/**
+ * How much figure each tile can hold, in em of the `.numeral` face, measured
+ * at the narrowest render: a 320px phone, where the numeral has hit its rem
+ * floor while the tile is still shrinking. Past the budget `currencyFit`
+ * hands back the short form rather than letting the figure wrap or truncate.
+ *
+ * The hero budget is the tighter of the two despite the bigger tile: its
+ * numeral is nearly half again as large, so it runs out of room first.
+ */
+const HERO_FIT = { em: 3.8 };
+const SMALL_FIT = { em: 5.2 };
 
 /** Shared shell for every list row on this page: identity left, facts right. */
 const ROW =
@@ -118,49 +146,28 @@ export default function DashboardPage() {
 
   const summary = data?.summary;
 
+  // Every row here is the same kind of thing — a figure for the chosen period
+  // — so every chip is the same neutral plate. They used to be tinted sage,
+  // ochre and terracotta, which ranked six equals against each other and spent
+  // the accent colours on decoration a foot below the tiles that need them.
+  // The icon is what tells the rows apart.
   const reportRows = [
-    {
-      label: "Billed",
-      value: currency(report?.billed),
-      icon: IndianRupee,
-      chip: "bg-[var(--surface-sunk)] text-[var(--ink)]",
-    },
-    {
-      label: "Collected",
-      value: currency(report?.collected),
-      icon: Wallet,
-      chip: "bg-[var(--sage)] text-[var(--forest)]",
-    },
+    { label: "Billed", value: currency(report?.billed), icon: IndianRupee },
+    { label: "Collected", value: currency(report?.collected), icon: Wallet },
     {
       // Unpaid credit across every ISSUED / PARTIALLY_PAID invoice. Unlike
-      // every other row here this is a running balance, not a flow, so it is
+      // most rows here this is a running balance, not a flow, so it is
       // deliberately NOT scoped to the selected period — money owed does not
       // stop being owed because you switched the tab to Today. Tagged so the
       // figure cannot be misread as "owed today".
       label: "Outstanding credit",
       value: currency(report?.outstanding),
       icon: HandCoins,
-      chip: "bg-[var(--terracotta)]/14 text-[var(--terracotta-hover)]",
       allTime: true,
     },
-    {
-      label: "Jobs completed",
-      value: String(report?.jobsCompleted ?? 0),
-      icon: Wrench,
-      chip: "bg-[var(--sage)] text-[var(--forest)]",
-    },
-    {
-      label: "Invoices issued",
-      value: String(report?.invoicesCount ?? 0),
-      icon: FileText,
-      chip: "bg-[var(--surface-sunk)] text-[var(--ink)]",
-    },
-    {
-      label: "Parts consumed",
-      value: String(report?.partsConsumed ?? 0),
-      icon: PackageX,
-      chip: "bg-[var(--ochre)]/25 text-[#8a6a10]",
-    },
+    { label: "Jobs completed", value: String(report?.jobsCompleted ?? 0), icon: Wrench },
+    { label: "Invoices issued", value: String(report?.invoicesCount ?? 0), icon: FileText },
+    { label: "Parts consumed", value: String(report?.partsConsumed ?? 0), icon: PackageX },
   ];
 
   const greeting = () => {
@@ -217,60 +224,112 @@ export default function DashboardPage() {
     <div className="space-y-6">
       {header}
 
-      {/* ── Today, at a squint ───────────────────────────────────────── */}
+      {/* ── Today, at a squint ───────────────────────────────────────
+          One fill, and only one. Forest is the day's takings; everything else
+          is a fact you go looking for, so it sits on a neutral plate. The grid
+          used to run five different fills across eight tiles, which meant
+          nothing led: squinting at it returned too many answers to be an
+          answer. Weight now comes from the height of the leading pair. */}
       {isLoading ? (
         <BentoGrid>
-          <Skeleton className="col-span-2 h-44" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
+          <Skeleton className="h-[9.5rem]" />
+          <Skeleton className="h-[9.5rem]" />
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-[6.25rem]" />
+          ))}
         </BentoGrid>
       ) : (
       <BentoGrid>
-        <Tile tone="forest" className="col-span-2 flex min-h-44 flex-col justify-between gap-6 p-5">
-          <div className="flex items-start justify-between gap-3">
-            <span className="tile-label text-[var(--ink-on-dark-muted)]">Billed today</span>
-            <IndianRupee size={18} className="shrink-0 opacity-45" />
-          </div>
-          <div>
-            <p className="numeral truncate text-[clamp(2.5rem,13vw,4rem)]">
-              {currency(summary?.todayBilled)}
-            </p>
-            <p className="mt-2 text-xs font-semibold text-[var(--ink-on-dark-muted)]">
-              {summary?.activeJobs ?? 0} on the floor · {summary?.completedToday ?? 0} closed today
-            </p>
-          </div>
-        </Tile>
+        {/* Row one is the two money questions: what came in today, and what
+            the shelves have cost to fill. They lead the grid on height — the
+            six behind them are read when you go looking. */}
+        <StatTile
+          tone="forest"
+          className={HERO_TILE}
+          label="Billed today"
+          value={currencyFit(summary?.todayBilled, HERO_FIT)}
+          footnote={`${summary?.activeJobs ?? 0} open · ${summary?.completedToday ?? 0} closed`}
+          icon={<IndianRupee size={18} />}
+        />
 
+        {/* All-time, sitting in a row about today — so the footnote leads with
+            the qualifier rather than burying it. Without that word ₹2,12,000
+            beside "Billed today ₹570" reads as money spent today, which it has
+            never been: it is every unit ever booked in, at what it cost. */}
         <StatTile
-          tone="sage"
+          tone="bright"
+          className={HERO_TILE}
+          label="Spent on stock"
+          value={currencyFit(summary?.stockPurchased, HERO_FIT)}
+          footnote={
+            <>
+              <span className="font-extrabold text-[var(--ink-muted)]">All time</span> · cost of
+              every unit booked in
+            </>
+          }
+          icon={<ShoppingCart size={18} />}
+        />
+
+        {/* The six you go looking for. All neutral, so the pair above keeps
+            its weight; the icon and the label are what tell them apart. */}
+        <StatTile
+          size="sm"
+          tone="bright"
           label="Collected"
-          value={currency(summary?.todayCollected)}
+          value={currencyFit(summary?.todayCollected, SMALL_FIT)}
           footnote="Payments taken today"
-          icon={<Wallet size={16} />}
+          icon={<Wallet size={15} />}
         />
         <StatTile
-          tone="terracotta"
-          label="Outstanding credit"
-          value={currency(summary?.outstanding)}
-          footnote="Unpaid across all invoices"
-          icon={<HandCoins size={16} />}
-        />
-        <StatTile
-          tone="ochre"
+          size="sm"
+          tone="bright"
           label="Active jobs"
           value={String(summary?.activeJobs ?? 0)}
           footnote="Open on the floor"
-          icon={<Wrench size={16} />}
+          icon={<Wrench size={15} />}
+        />
+
+        <StatTile
+          size="sm"
+          tone="bright"
+          label="Warehouse stock"
+          value={units(summary?.warehouseUnits)}
+          unit="units"
+          footnote={`${currency(summary?.warehouseStockValue)} at cost`}
+          icon={<Warehouse size={15} />}
         />
         <StatTile
-          tone="forest"
+          size="sm"
+          tone="bright"
+          label="Shop stock"
+          value={units(summary?.shopUnits)}
+          unit="units"
+          footnote={`${currency(summary?.shopStockValue)} at cost`}
+          icon={<Store size={15} />}
+        />
+
+        {/* Closing pair. Neither is a live figure you act on mid-shift —
+            outstanding credit is a running balance that only moves when a
+            customer pays, and completed today is the tally you read at the
+            end of the day — so they sit last, after the work in front of you
+            and the stock behind it. */}
+        <StatTile
+          size="sm"
+          tone="bright"
+          label="Outstanding credit"
+          value={currencyFit(summary?.outstanding, SMALL_FIT)}
+          footnote="Unpaid across all invoices"
+          icon={<HandCoins size={15} />}
+        />
+        <StatTile
+          size="sm"
+          tone="bright"
           label="Completed today"
           value={String(summary?.completedToday ?? 0)}
           footnote="Finished and invoiced"
-          icon={<CircleCheckBig size={16} />}
+          icon={<CircleCheckBig size={15} />}
         />
+
       </BentoGrid>
       )}
 
@@ -329,7 +388,7 @@ export default function DashboardPage() {
               {reportRows.map((r) => (
                 <div key={r.label} className="flex items-center justify-between gap-3 px-4 py-3">
                   <span className="flex min-w-0 items-center gap-3">
-                    <span className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-full", r.chip)}>
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--surface-sunk)] text-[var(--ink)]">
                       <r.icon size={15} />
                     </span>
                     <span className="min-w-0">

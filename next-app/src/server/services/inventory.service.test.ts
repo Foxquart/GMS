@@ -8,6 +8,7 @@ import {
   getPartBalance,
   stockIn,
   transferStock,
+  listTransfers,
   listMovements,
   getLowStock,
 } from "@/server/services/inventory.service";
@@ -55,6 +56,91 @@ describe("inventory service", () => {
     await expect(transferStock({ partId: part.id, quantity: 50 })).rejects.toThrow(
       /not enough stock/i,
     );
+  });
+
+  it("transferStock moves several parts in one transfer", async () => {
+    const { part } = await seedCustomerAndPart(0);
+    const second = await createPart({
+      name: "Oil Filter",
+      openingWarehouseStock: 10,
+      openingShopStock: 0,
+    });
+
+    const result = await transferStock({
+      items: [
+        { partId: part.id, quantity: 3 },
+        { partId: second.id, quantity: 4 },
+      ],
+    });
+
+    expect(result.lines).toBe(2);
+    expect(result.units).toBe(7);
+    expect(await getPartBalance(part.id, "SHOP")).toBe(3);
+    expect(await getPartBalance(second.id, "SHOP")).toBe(4);
+    expect(await getPartBalance(second.id, "WAREHOUSE")).toBe(6);
+
+    // One transfer, two lines on it — not two transfers.
+    const [transfer] = await listTransfers();
+    expect(transfer.items.length).toBe(2);
+  });
+
+  it("transferStock merges the same part picked twice", async () => {
+    const { part } = await seedCustomerAndPart(0);
+    const result = await transferStock({
+      items: [
+        { partId: part.id, quantity: 2 },
+        { partId: part.id, quantity: 3 },
+      ],
+    });
+
+    expect(result.lines).toBe(1);
+    expect(await getPartBalance(part.id, "SHOP")).toBe(5);
+  });
+
+  it("transferStock moves shop → warehouse when asked", async () => {
+    const { part } = await seedCustomerAndPart(6);
+    await transferStock({
+      items: [{ partId: part.id, quantity: 4 }],
+      fromLocationCode: "SHOP",
+      toLocationCode: "WAREHOUSE",
+    });
+
+    expect(await getPartBalance(part.id, "SHOP")).toBe(2);
+    expect(await getPartBalance(part.id, "WAREHOUSE")).toBe(24);
+  });
+
+  it("transferStock moves nothing at all when one line is short", async () => {
+    const { part } = await seedCustomerAndPart(0);
+    const second = await createPart({
+      name: "Air Filter",
+      openingWarehouseStock: 1,
+      openingShopStock: 0,
+    });
+
+    await expect(
+      transferStock({
+        items: [
+          { partId: part.id, quantity: 5 },
+          { partId: second.id, quantity: 9 },
+        ],
+      }),
+    ).rejects.toThrow(/air filter/i);
+
+    // The first line rolled back with the failing one.
+    expect(await getPartBalance(part.id, "SHOP")).toBe(0);
+    expect(await getPartBalance(part.id, "WAREHOUSE")).toBe(20);
+    expect(await listTransfers()).toHaveLength(0);
+  });
+
+  it("transferStock rejects a move to the same location", async () => {
+    const { part } = await seedCustomerAndPart(4);
+    await expect(
+      transferStock({
+        items: [{ partId: part.id, quantity: 1 }],
+        fromLocationCode: "SHOP",
+        toLocationCode: "SHOP",
+      }),
+    ).rejects.toThrow(/different locations/i);
   });
 
   it("getLowStock returns parts below minimum shop stock", async () => {

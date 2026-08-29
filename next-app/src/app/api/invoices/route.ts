@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
         status: sp.get("status") ?? undefined,
         q: sp.get("q") ?? undefined,
       }),
+   
     );
   } catch (err) {
     return handleError(err);

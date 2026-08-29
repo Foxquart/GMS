@@ -1,4 +1,4 @@
-import { aliasedTable, and, desc, eq, sql } from "drizzle-orm";
+import { aliasedTable, and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/server/db/connection";
 import {
   categories,
@@ -8,6 +8,7 @@ import {
   stockMovements,
   stockTransferItems,
   stockTransfers,
+  subCategories,
   suppliers,
   type movementTypeEnum,
 } from "@/server/db/schema";
@@ -168,6 +169,7 @@ export async function updateSupplier(
 export async function listParts(opts: {
   q?: string;
   categoryId?: string;
+  subCategoryId?: string;
   includeArchived?: boolean;
   limit?: number;
 }) {
@@ -177,6 +179,9 @@ export async function listParts(opts: {
   }
   if (opts.categoryId) {
     conditions.push(eq(parts.categoryId, opts.categoryId));
+  }
+  if (opts.subCategoryId) {
+    conditions.push(eq(parts.subCategoryId, opts.subCategoryId));
   }
   if (opts.q) {
     const like = `%${opts.q.toLowerCase()}%`;
@@ -193,6 +198,8 @@ export async function listParts(opts: {
       brand: parts.brand,
       categoryId: parts.categoryId,
       categoryName: categories.name,
+      subCategoryId: parts.subCategoryId,
+      subCategoryName: subCategories.name,
       sellingPrice: parts.sellingPrice,
       purchasePrice: parts.purchasePrice,
       minimumShopStock: parts.minimumShopStock,
@@ -208,6 +215,7 @@ export async function listParts(opts: {
     })
     .from(parts)
     .leftJoin(categories, eq(parts.categoryId, categories.id))
+    .leftJoin(subCategories, eq(parts.subCategoryId, subCategories.id))
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(parts.name)
     .limit(opts.limit ?? 500);
@@ -227,6 +235,8 @@ export async function getPart(id: string) {
 export async function createPart(input: {
   name: string;
   categoryId?: string;
+  /** Only meaningful with `categoryId`; the route validates the pair. */
+  subCategoryId?: string;
   supplierId?: string;
   partNumber?: string;
   brand?: string;
@@ -370,75 +380,159 @@ export async function adjustStock(input: {
 }
 
 // ─── Transfers ───────────────────────────────────────────────────────
+type TransferLine = { partId: string; quantity: number };
+
+/**
+ * Move stock between the two locations.
+ *
+ * Takes a list of lines so a whole pick — several parts, or everything in a
+ * category — lands as one transfer in one transaction: either the lot moves
+ * or none of it does. The old single-part shape (`partId` + `quantity`) is
+ * still accepted; the job sheet and the part page both post it.
+ */
 export async function transferStock(input: {
-  partId: string;
-  quantity: number;
+  partId?: string;
+  quantity?: number;
+  items?: TransferLine[];
+  fromLocationCode?: "SHOP" | "WAREHOUSE";
+  toLocationCode?: "SHOP" | "WAREHOUSE";
   notes?: string;
 }) {
-  if (input.quantity <= 0) {
-    throw new ApiError(400, "Quantity must be greater than zero");
+  const raw: TransferLine[] = input.items?.length
+    ? input.items
+    : input.partId
+      ? [{ partId: input.partId, quantity: Number(input.quantity ?? 0) }]
+      : [];
+  if (!raw.length) {
+    throw new ApiError(400, "Pick at least one part to move");
   }
-  const shop = await getLocationByCode("SHOP");
-  const warehouse = await getLocationByCode("WAREHOUSE");
+
+  // The same part can be picked twice — once by name, once by the category it
+  // sits in. That is one line on the shelf, not two competing ones.
+  const merged = new Map<string, number>();
+  for (const line of raw) {
+    const partId = String(line?.partId ?? "");
+    const quantity = Math.floor(Number(line?.quantity));
+    if (!partId) throw new ApiError(400, "Every line needs a part");
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new ApiError(400, "Quantity must be greater than zero");
+    }
+    merged.set(partId, (merged.get(partId) ?? 0) + quantity);
+  }
+  const lines = [...merged].map(([partId, quantity]) => ({ partId, quantity }));
+  if (lines.length > 200) {
+    throw new ApiError(400, "That is too many parts for one move — split it into smaller transfers");
+  }
+
+  const fromCode = input.fromLocationCode ?? "WAREHOUSE";
+  const toCode = input.toLocationCode ?? "SHOP";
+  if (fromCode === toCode) {
+    throw new ApiError(400, "Stock has to move between two different locations");
+  }
+  const from = await getLocationByCode(fromCode);
+  const to = await getLocationByCode(toCode);
+
+  // Names up front: they are what tells the user *which* part ran out when a
+  // twenty-line move fails, and the lookup doubles as the check that every id
+  // is real.
+  const named = await db
+    .select({ id: parts.id, name: parts.name })
+    .from(parts)
+    .where(inArray(parts.id, lines.map((l) => l.partId)));
+  const nameById = new Map(named.map((r: any) => [r.id, r.name as string]));
+  for (const line of lines) {
+    if (!nameById.has(line.partId)) throw new ApiError(404, "Part not found", "NOT_FOUND");
+  }
+
+  const fromLabel = from.name?.toLowerCase() ?? fromCode.toLowerCase();
 
   let transferId: string | undefined;
   await db.transaction(async (tx: any) => {
-    await changeStock(
-      tx,
-      input.partId,
-      warehouse.id,
-      -input.quantity,
-      "TRANSFER_OUT",
-      undefined,
-      input.notes,
-    );
-    await changeStock(
-      tx,
-      input.partId,
-      shop.id,
-      input.quantity,
-      "TRANSFER_IN",
-      undefined,
-      input.notes,
-    );
     const [transfer] = await tx
       .insert(stockTransfers)
       .values({
-        fromLocationId: warehouse.id,
-        toLocationId: shop.id,
+        fromLocationId: from.id,
+        toLocationId: to.id,
         notes: input.notes,
       })
       .returning();
-    await tx.insert(stockTransferItems).values({
-      transferId: transfer.id,
-      partId: input.partId,
-      quantity: input.quantity,
-    });
+
+    for (const line of lines) {
+      try {
+        await changeStock(
+          tx, line.partId, from.id, -line.quantity, "TRANSFER_OUT", undefined, input.notes,
+        );
+      } catch (err) {
+        // changeStock can only say "not enough" — it does not know which of
+        // the lines it was called for. Name the part, and say plainly that
+        // the rollback means nothing at all moved.
+        if (err instanceof ApiError && err.code === "INSUFFICIENT_STOCK") {
+          throw new ApiError(
+            409,
+            `Not enough stock: the ${fromLabel} doesn't hold ${line.quantity} × ${nameById.get(line.partId)}. Nothing was moved.`,
+            "INSUFFICIENT_STOCK",
+          );
+        }
+        throw err;
+      }
+      await changeStock(
+        tx, line.partId, to.id, line.quantity, "TRANSFER_IN", undefined, input.notes,
+      );
+    }
+
+    await tx.insert(stockTransferItems).values(
+      lines.map((line) => ({
+        transferId: transfer.id,
+        partId: line.partId,
+        quantity: line.quantity,
+      })),
+    );
     transferId = transfer.id;
   });
-  return { transferId };
+  return {
+    transferId,
+    fromLocationCode: fromCode,
+    toLocationCode: toCode,
+    lines: lines.length,
+    units: lines.reduce((sum, l) => sum + l.quantity, 0),
+  };
 }
 
 export async function listTransfers() {
+  // Part names and both location names travel with the row: a transfer can
+  // now carry twenty lines, and the history should not need the whole parts
+  // list loaded alongside it to be readable.
+  const fromLocation = aliasedTable(inventoryLocations, "from_location");
+  const toLocation = aliasedTable(inventoryLocations, "to_location");
+
   const rows = await db
     .select({
       id: stockTransfers.id,
       notes: stockTransfers.notes,
       createdAt: stockTransfers.createdAt,
+      fromCode: fromLocation.code,
+      fromName: fromLocation.name,
+      toCode: toLocation.code,
+      toName: toLocation.name,
       items: sql<string>`coalesce(json_agg(
         json_build_object(
           'id', ${stockTransferItems.id},
           'partId', ${stockTransferItems.partId},
+          'name', ${parts.name},
+          'unit', ${parts.unit},
           'quantity', ${stockTransferItems.quantity}
-        )
+        ) order by ${parts.name}
       ) filter (where ${stockTransferItems.id} is not null), '[]'::json)`,
     })
     .from(stockTransfers)
+    .innerJoin(fromLocation, eq(stockTransfers.fromLocationId, fromLocation.id))
+    .innerJoin(toLocation, eq(stockTransfers.toLocationId, toLocation.id))
     .leftJoin(
       stockTransferItems,
       eq(stockTransferItems.transferId, stockTransfers.id),
     )
-    .groupBy(stockTransfers.id)
+    .leftJoin(parts, eq(stockTransferItems.partId, parts.id))
+    .groupBy(stockTransfers.id, fromLocation.id, toLocation.id)
     .orderBy(desc(stockTransfers.createdAt))
     .limit(100);
   return rows;

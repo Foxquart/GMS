@@ -1,6 +1,6 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/server/db/connection";
-import { categories, parts } from "@/server/db/schema";
+import { categories, categorySubCategories, parts, subCategories } from "@/server/db/schema";
 import { ApiError } from "@/server/lib/http";
 
 // Default categories offered on a brand-new install, in display order.
@@ -27,6 +27,15 @@ const partsCountSql = sql<number>`(
   where p.category_id = "categories"."id" and p.is_archived = false
 )`;
 
+/**
+ * How many sub-categories are filed under each category. Same literal
+ * `"categories"."id"` reference as above, for the same reason.
+ */
+const subCategoryCountSql = sql<number>`(
+  select count(*)::int from ${categorySubCategories} csc
+  where csc.category_id = "categories"."id"
+)`;
+
 const categorySelection = {
   id: categories.id,
   name: categories.name,
@@ -35,6 +44,7 @@ const categorySelection = {
   createdAt: categories.createdAt,
   updatedAt: categories.updatedAt,
   partsCount: partsCountSql,
+  subCategoryCount: subCategoryCountSql,
 };
 
 // ─── Queries ─────────────────────────────────────────────────────────
@@ -57,7 +67,11 @@ export async function listCategories(opts?: { q?: string; includeArchived?: bool
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(categories.name);
 
-  return rows.map((r: any) => ({ ...r, partsCount: Number(r.partsCount ?? 0) }));
+  return rows.map((r: any) => ({
+    ...r,
+    partsCount: Number(r.partsCount ?? 0),
+    subCategoryCount: Number(r.subCategoryCount ?? 0),
+  }));
 }
 
 export async function getCategory(id: string) {
@@ -67,7 +81,11 @@ export async function getCategory(id: string) {
     .where(eq(categories.id, id))
     .limit(1);
   if (!row) throw new ApiError(404, "Category not found", "NOT_FOUND");
-  return { ...row, partsCount: Number(row.partsCount ?? 0) };
+  return {
+    ...row,
+    partsCount: Number(row.partsCount ?? 0),
+    subCategoryCount: Number(row.subCategoryCount ?? 0),
+  };
 }
 
 async function findByName(name: string, excludeId?: string) {
@@ -156,17 +174,41 @@ export async function deleteCategory(id: string, opts?: { force?: boolean }) {
     );
   }
 
+  let orphanedSubCategories = 0;
+
   await db.transaction(async (tx: any) => {
     if (inUse > 0) {
       await tx
         .update(parts)
-        .set({ categoryId: null, updatedAt: new Date() })
+        .set({ categoryId: null, subCategoryId: null, updatedAt: new Date() })
         .where(eq(parts.categoryId, id));
     }
     await tx.delete(categories).where(eq(categories.id, id));
+
+    // The link rows went with it (ON DELETE CASCADE). Any sub-category that
+    // was mapped only to this category now has no category at all, which is a
+    // state this system does not allow one to exist in — so it goes too, and
+    // any part still pointing at it is unlinked first.
+    const stranded = await tx
+      .select({ id: subCategories.id })
+      .from(subCategories)
+      .where(sql`not exists (
+        select 1 from ${categorySubCategories} csc
+        where csc.sub_category_id = ${subCategories.id}
+      )`);
+
+    if (stranded.length) {
+      const ids = stranded.map((r: any) => r.id);
+      await tx
+        .update(parts)
+        .set({ subCategoryId: null, updatedAt: new Date() })
+        .where(inArray(parts.subCategoryId, ids));
+      await tx.delete(subCategories).where(inArray(subCategories.id, ids));
+      orphanedSubCategories = ids.length;
+    }
   });
 
-  return { id, unlinkedParts: inUse };
+  return { id, unlinkedParts: inUse, deletedSubCategories: orphanedSubCategories };
 }
 
 // ─── Seeding ─────────────────────────────────────────────────────────
