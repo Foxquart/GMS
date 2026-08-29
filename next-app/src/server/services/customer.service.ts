@@ -25,8 +25,21 @@ export async function listCustomers(opts: { q?: string }) {
       phone: customers.phone,
       address: customers.address,
       createdAt: customers.createdAt,
-      totalJobs: sql<number>`(select count(*) from ${jobs} where ${jobs.customerId} = ${customers.id})`,
-      outstanding: sql<string>`coalesce((select sum(${invoices.dueAmount}) from ${invoices} where ${invoices.customerId} = ${customers.id} and ${inArray(invoices.status, [...OUTSTANDING_INVOICE_STATUSES])}), 0)`,
+      // "customers"."id" is spelled out because this query has no join, and
+      // drizzle drops the table prefix in that case — the correlation then
+      // bound to the subquery's own table and every customer read 0 jobs /
+      // 0 outstanding, even while their detail page showed money owed.
+      totalJobs: sql<number>`(
+        select count(*) from ${jobs} j where j.customer_id = "customers"."id"
+      )`,
+      outstanding: sql<string>`coalesce((
+        select sum(i.due_amount) from ${invoices} i
+        where i.customer_id = "customers"."id"
+          and i.status in (${sql.join(
+            OUTSTANDING_INVOICE_STATUSES.map((v) => sql`${v}`),
+            sql`, `,
+          )})
+      ), 0)`,
     })
     .from(customers)
     .where(conditions.length ? and(...conditions) : undefined)

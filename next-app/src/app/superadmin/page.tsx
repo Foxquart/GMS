@@ -90,7 +90,7 @@ export default function SuperadminOverviewPage() {
           value={apiLatency}
           unit="ms"
           icon={<Server size={16} />}
-          footnote={String(data?.api?.status ?? "HEALTHY")}
+          footnote={`Server time · ${String(data?.api?.status ?? "HEALTHY")}`}
         />
 
         <StatTile

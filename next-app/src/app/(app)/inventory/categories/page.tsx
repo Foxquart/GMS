@@ -320,9 +320,17 @@ export default function CategoriesPage() {
 
                 <div className="flex shrink-0 flex-col items-end gap-2">
                   <div className="flex items-center gap-1.5">
-                    <Badge color={c.partsCount ? "blue" : "gray"}>
-                      {c.partsCount} {c.partsCount === 1 ? "part" : "parts"}
-                    </Badge>
+                    {c.partsCount > 0 ? (
+                      // The count alone left no way to actually see what is in
+                      // a category; this drills through to the filtered list.
+                      <Link href={`/inventory?categoryId=${c.id}`} aria-label={`View ${c.partsCount} parts in ${c.name}`}>
+                        <Badge color="blue">
+                          {c.partsCount} {c.partsCount === 1 ? "part" : "parts"}
+                        </Badge>
+                      </Link>
+                    ) : (
+                      <Badge color="gray">0 parts</Badge>
+                    )}
                     {c.isArchived && <Badge color="gray">Archived</Badge>}
                   </div>
                   <div className="flex items-center gap-1">

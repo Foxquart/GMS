@@ -14,9 +14,17 @@ export const DEFAULT_CATEGORIES = [
   "Switches",
 ] as const;
 
+/**
+ * Correlated count of parts in each category.
+ *
+ * The outer reference is written out as "categories"."id" on purpose. When the
+ * outer query has no join, drizzle renders ${categories.id} as a bare "id",
+ * which Postgres then resolves against the *subquery's* table — so this became
+ * `parts.category_id = parts.id` and every category reported zero parts.
+ */
 const partsCountSql = sql<number>`(
   select count(*)::int from ${parts} p
-  where p.category_id = ${categories.id} and p.is_archived = false
+  where p.category_id = "categories"."id" and p.is_archived = false
 )`;
 
 const categorySelection = {

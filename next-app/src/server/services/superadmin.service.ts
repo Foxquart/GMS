@@ -9,105 +9,115 @@ function hashPassword(password: string): string {
   return `scrypt$${salt}$${hash}`;
 }
 
-export async function getSuperadminOverview() {
-  const startDb = Date.now();
-  let dbStatus = "HEALTHY";
-  let dbLatency = 0;
+/** A route handler slower than this is reported as DEGRADED. */
+export const API_LATENCY_THRESHOLD_MS = 1000;
+/** A database round trip slower than this opens an alert. */
+export const DB_LATENCY_THRESHOLD_MS = 500;
+
+export type DatabaseHealth = {
+  status: string;
+  latencyMs: number;
+  details: string;
+};
+
+/**
+ * Times a bare `SELECT 1` so the number reports connection round trip and
+ * nothing else — a `count(*)` would grow with the table and read as latency.
+ */
+async function pingDatabase(): Promise<DatabaseHealth> {
+  const startedAt = Date.now();
   try {
-    await db.select({ count: sql`count(*)` }).from(schema.users);
-    dbLatency = Date.now() - startDb;
-  } catch (err) {
-    dbStatus = "UNHEALTHY";
-    dbLatency = Date.now() - startDb;
+    await db.execute(sql`select 1`);
+    const latencyMs = Date.now() - startedAt;
+    return latencyMs > DB_LATENCY_THRESHOLD_MS
+      ? { status: "DEGRADED", latencyMs, details: `Database round trip is high: ${latencyMs}ms` }
+      : { status: "HEALTHY", latencyMs, details: "Database responded to a round-trip probe" };
+  } catch (err: any) {
+    return {
+      status: "UNHEALTHY",
+      latencyMs: Date.now() - startedAt,
+      details: err?.message || "Failed to reach database",
+    };
   }
+}
 
-  const allUsers = await db.select().from(schema.users);
-  const adminCount = allUsers.filter((u: any) => u.role.toUpperCase() === "ADMIN").length;
+export async function getSuperadminOverview(dbHealth?: DatabaseHealth) {
+  // Reuse the caller's probe when there is one; a second ping in the same
+  // request would only report a warm connection, not the real round trip.
+  const database = dbHealth ?? (await pingDatabase());
 
-  const openAlerts = await db
-    .select()
-    .from(schema.systemAlerts)
-    .where(eq(schema.systemAlerts.status, "OPEN"));
-
-  const recentAudit = await db
-    .select()
-    .from(schema.auditLogs)
-    .orderBy(desc(schema.auditLogs.createdAt))
-    .limit(10);
+  // One round trip instead of three. Every query here costs a full network
+  // round trip to the database, so awaiting them in sequence multiplies that
+  // latency by the number of queries.
+  const [[admins], [alerts], recentAudit] = await Promise.all([
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.users)
+      .where(sql`upper(${schema.users.role}) = 'ADMIN'`),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.systemAlerts)
+      .where(eq(schema.systemAlerts.status, "OPEN")),
+    db
+      .select()
+      .from(schema.auditLogs)
+      .orderBy(desc(schema.auditLogs.createdAt))
+      .limit(10),
+  ]);
 
   return {
-    systemStatus: dbStatus === "HEALTHY" ? "HEALTHY" : "DEGRADED",
-    apiStatus: "HEALTHY",
-    dbStatus,
-    dbLatencyMs: dbLatency,
-    activeAdmins: adminCount,
-    openAlertsCount: openAlerts.length,
+    systemStatus: database.status === "HEALTHY" ? "HEALTHY" : "DEGRADED",
+    dbStatus: database.status,
+    dbLatencyMs: database.latencyMs,
+    activeAdmins: admins.count,
+    openAlertsCount: alerts.count,
     recentAudit,
     appVersion: "1.1.0",
     lastCheckAt: new Date().toISOString(),
   };
 }
 
-export async function checkSystemHealth() {
-  const startDb = Date.now();
-  let dbStatus = "HEALTHY";
-  let dbLatency = 0;
-  let details = "Database query executed successfully";
-
-  try {
-    await db.select({ count: sql`count(*)` }).from(schema.users);
-    dbLatency = Date.now() - startDb;
-    if (dbLatency > 500) {
-      dbStatus = "DEGRADED";
-      details = `Database latency is high: ${dbLatency}ms`;
-    }
-  } catch (err: any) {
-    dbStatus = "UNHEALTHY";
-    dbLatency = Date.now() - startDb;
-    details = err?.message || "Failed to reach database";
-  }
-
-  // Save health check
+/**
+ * Records the probe and opens an alert if it breached. Split out so callers
+ * can run it alongside their other queries rather than in front of them.
+ */
+export async function recordHealthCheck(database: DatabaseHealth) {
   await db.insert(schema.systemHealthChecks).values({
     checkType: "DATABASE",
-    status: dbStatus,
-    latencyMs: dbLatency,
-    details,
+    status: database.status,
+    latencyMs: database.latencyMs,
+    details: database.details,
   });
 
-  // Evaluate smart alerts
-  if (dbStatus === "UNHEALTHY" || dbLatency > 500) {
-    const existing = await db
-      .select()
-      .from(schema.systemAlerts)
-      .where(eq(schema.systemAlerts.status, "OPEN"))
-      .limit(1);
+  if (database.status === "HEALTHY") return;
 
-    if (existing.length === 0) {
-      await db.insert(schema.systemAlerts).values({
-        severity: dbStatus === "UNHEALTHY" ? "CRITICAL" : "WARNING",
-        condition: dbStatus === "UNHEALTHY" ? "Database unreachable" : "Database latency above 500ms",
-        threshold: "500ms",
-        currentValue: `${dbLatency}ms`,
-        status: "OPEN",
-      });
-    }
-  }
+  const existing = await db
+    .select()
+    .from(schema.systemAlerts)
+    .where(eq(schema.systemAlerts.status, "OPEN"))
+    .limit(1);
 
-  return {
-    database: {
-      status: dbStatus,
-      latencyMs: dbLatency,
-      details,
-    },
-    api: {
-      status: "HEALTHY",
-      latencyMs: 12,
-      details: "API routes functioning normally",
-    },
-    timestamp: new Date().toISOString(),
-  };
+  if (existing.length > 0) return;
+
+  await db.insert(schema.systemAlerts).values({
+    severity: database.status === "UNHEALTHY" ? "CRITICAL" : "WARNING",
+    condition:
+      database.status === "UNHEALTHY"
+        ? "Database unreachable"
+        : `Database latency above ${DB_LATENCY_THRESHOLD_MS}ms`,
+    threshold: `${DB_LATENCY_THRESHOLD_MS}ms`,
+    currentValue: `${database.latencyMs}ms`,
+    status: "OPEN",
+  });
 }
+
+export async function checkSystemHealth() {
+  const database = await pingDatabase();
+  await recordHealthCheck(database);
+  return { database, timestamp: new Date().toISOString() };
+}
+
+export { pingDatabase };
 
 export async function listAdmins() {
   return await db

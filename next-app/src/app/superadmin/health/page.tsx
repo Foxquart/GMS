@@ -87,7 +87,7 @@ export default function SuperadminHealthPage() {
           value={apiLatency}
           unit="ms"
           icon={<Server size={16} />}
-          footnote={apiStatus}
+          footnote={`Server time · ${apiStatus}`}
         />
         <StatTile
           tone="cream"
@@ -108,7 +108,7 @@ export default function SuperadminHealthPage() {
                 {dbStatus.toUpperCase()}
               </Badge>
             </DetailRow>
-            <DetailRow label="Measured latency">
+            <DetailRow label="Round-trip probe">
               <span className="tabular text-sm font-extrabold text-[var(--ink)]">{dbLatency} ms</span>
             </DetailRow>
             <DetailRow label="Threshold">
@@ -130,7 +130,7 @@ export default function SuperadminHealthPage() {
                 {apiStatus.toUpperCase()}
               </Badge>
             </DetailRow>
-            <DetailRow label="Internal latency">
+            <DetailRow label="Server time (incl. database)">
               <span className="tabular text-sm font-extrabold text-[var(--ink)]">{apiLatency} ms</span>
             </DetailRow>
             <DetailRow label="Last reading">

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   Package,
@@ -71,15 +72,33 @@ const SHELF_LINKS = [
 ];
 
 export default function InventoryPage() {
+  // useSearchParams() must sit inside a Suspense boundary (App Router).
+  return (
+    <Suspense fallback={<div className="space-y-5"><Skeleton className="h-32 rounded-[var(--r-card)]" /></div>}>
+      <InventoryBrowser />
+    </Suspense>
+  );
+}
+
+function InventoryBrowser() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const categoryId = searchParams.get("categoryId") ?? "";
+
   const [tab, setTab] = useState<Location>("SHOP");
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
 
   const { data: parts, isPending, isFetching, isError, error, refetch } = useQuery({
-    queryKey: ["inventory", search],
-    queryFn: () => api<Part[]>("/api/parts", { params: { q: search || undefined } }),
+    queryKey: ["inventory", search, categoryId],
+    queryFn: () =>
+      api<Part[]>("/api/parts", {
+        params: { q: search || undefined, categoryId: categoryId || undefined },
+      }),
     placeholderData: keepPreviousData,
   });
+
+  const categoryName = (parts ?? []).find((p: any) => p.categoryId === categoryId)?.categoryName;
 
   const stockFor = (p: Part) => Number((tab === "SHOP" ? p.shopStock : p.warehouseStock) ?? 0);
   const minFor = (p: Part) =>
@@ -132,6 +151,21 @@ export default function InventoryPage() {
           </Button>
         </Link>
       </div>
+
+      {categoryId && (
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-2 rounded-full bg-[var(--sage)] px-3.5 py-1.5 text-xs font-extrabold text-[var(--forest)]">
+            <Layers size={13} />
+            {categoryName ?? "Category"}
+          </span>
+          <button
+            onClick={() => router.push("/inventory")}
+            className="text-xs font-bold text-[var(--ink-muted)] underline underline-offset-2 hover:text-[var(--ink)]"
+          >
+            Clear filter
+          </button>
+        </div>
+      )}
 
       {/* ── Stock position ─────────────────────────────────────────── */}
       {isPending ? (
