@@ -5,16 +5,16 @@ export default function SuperadminActivityLoading() {
   return (
     <div className="space-y-5" role="status" aria-live="polite">
       <span className="sr-only">Loading the audit log…</span>
-      <StickyControls className="top-16 lg:top-16">
+      <StickyControls className="top-[var(--console-sticky-top)] lg:top-[var(--console-sticky-top)]">
         <div className="flex items-center justify-between gap-3">
           <Skeleton className="h-7 w-36 rounded-full" />
-          <Skeleton className="h-8 w-28 shrink-0 rounded-full" />
+          <Skeleton className="h-11 w-28 shrink-0 rounded-full sm:h-8" />
         </div>
       </StickyControls>
-      <Skeleton className="h-4 w-80 rounded-full" />
+      <Skeleton className="h-4 w-full max-w-80 rounded-full" />
       <div className="space-y-2">
         {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-          <Skeleton key={i} className="h-[74px] rounded-[var(--r-tile)]" />
+          <Skeleton key={i} className="h-[92px] rounded-[var(--r-tile)] sm:h-[74px]" />
         ))}
       </div>
     </div>

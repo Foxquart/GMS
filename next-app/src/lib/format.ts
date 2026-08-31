@@ -42,6 +42,27 @@ export const currencyFit = (
   return full;
 };
 
+/**
+ * Storage sizes, in the units an operator reads them in. Binary steps, because
+ * that is what Postgres reports and what a plan's limit is quoted in; two
+ * decimals only while the number is small enough for them to mean anything.
+ */
+export const bytes = (n: number | null | undefined) => {
+  const v = Number(n ?? 0);
+  if (!Number.isFinite(v) || v <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(v) / Math.log(1024)));
+  const scaled = v / 1024 ** i;
+  const decimals = i === 0 ? 0 : scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
+  return `${scaled.toFixed(decimals)} ${units[i]}`;
+};
+
+/** Split for a stat tile that shows the figure and its unit separately. */
+export const bytesParts = (n: number | null | undefined) => {
+  const [value, unit] = bytes(n).split(" ");
+  return { value, unit };
+};
+
 export const formatDate = (d: string | Date | null | undefined) => {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });

@@ -52,7 +52,11 @@ export default function SuperadminSystemPage() {
     <div className="space-y-5">
       {header}
 
-      <BentoGrid className="sm:grid-cols-4">
+      {/* Four across from lg, not sm: between 640 and 860px a quarter column is
+          narrow enough that "PGlite (embedded)" wraps to three lines while the
+          version tiles beside it sit nearly empty. `break-words` is inherited
+          by the value, which is a server-reported version string. */}
+      <BentoGrid className="break-words lg:grid-cols-4">
         <SpecTile
           tone="bright"
           icon={<Code size={18} />}
@@ -93,12 +97,21 @@ export default function SuperadminSystemPage() {
   );
 }
 
-/** Two-column fact row: label left, value right, both truncating cleanly. */
+/**
+ * Two-column fact row: label left, value right.
+ *
+ * The value used to `truncate`, which defeats the point of the page — these
+ * are the exact strings someone quotes into a bug report, and at 320px the
+ * label left them barely 130px. They now wrap, and below sm the value takes
+ * its own line so it has the full column to do it in.
+ */
 function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-2.5">
+    <div className="flex flex-col gap-1 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <dt className="tile-label shrink-0 text-[var(--ink-label)]">{label}</dt>
-      <dd className="min-w-0 truncate text-right text-sm font-bold text-[var(--ink)]">{children}</dd>
+      <dd className="min-w-0 break-words text-sm font-bold text-[var(--ink)] sm:text-right">
+        {children}
+      </dd>
     </div>
   );
 }
@@ -108,15 +121,17 @@ function SystemSkeleton() {
     <div className="space-y-5" role="status" aria-live="polite">
       <span className="sr-only">Reading the runtime environment…</span>
       <div className="space-y-2">
-        <Skeleton className="h-7 w-40 rounded-full" />
-        <Skeleton className="h-4 w-80 rounded-full" />
+        <Skeleton className="h-7 w-full max-w-40 rounded-full" />
+        {/* A fixed w-80 overflows the 288px content column on a 320px phone. */}
+        <Skeleton className="h-4 w-full max-w-80 rounded-full" />
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
           <Skeleton key={i} className="h-24" />
         ))}
       </div>
-      <Skeleton className="h-48 rounded-[var(--r-card)]" />
+      {/* Taller below sm, where each fact row stacks its value under its label. */}
+      <Skeleton className="h-64 rounded-[var(--r-card)] sm:h-48" />
     </div>
   );
 }
