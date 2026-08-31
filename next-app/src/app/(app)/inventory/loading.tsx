@@ -20,24 +20,28 @@ export default function InventoryLoading() {
         </div>
       </div>
 
-      {/* The category panel, open by default, ahead of the parts controls. */}
+      {/* The category grid, open by default, ahead of the parts controls. */}
       <Skeleton className="h-64 rounded-[var(--r-panel)]" />
 
       <StickyControls className="space-y-2.5">
-        {/* Location pill on the left, status filter taking the rest.
-            44px target plus the 4px track = 52px. */}
-        <div className="flex flex-wrap items-center gap-2">
-          <Skeleton className="h-[52px] w-[118px] rounded-full" />
-          <Skeleton className="h-[52px] flex-1 basis-[188px] rounded-full" />
-        </div>
+        {/* Search on top, then the count with Filter and Sort beside it. */}
         <Skeleton className="h-11 rounded-[var(--r-control)]" />
+        <div className="flex items-center justify-between gap-2">
+          <Skeleton className="h-4 w-16 rounded-full" />
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-20 rounded-full" />
+            <Skeleton className="h-9 w-[8.5rem] rounded-full" />
+          </div>
+        </div>
       </StickyControls>
 
       <div className="space-y-2.5">
         <Skeleton className="h-5 w-28 rounded-full" />
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-[68px]" />
-        ))}
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-[11.5rem]" />
+          ))}
+        </div>
       </div>
     </div>
   );

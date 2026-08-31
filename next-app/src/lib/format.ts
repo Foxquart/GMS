@@ -76,6 +76,23 @@ export const currencyFit = (
   return full;
 };
 
+/**
+ * The tail of a document number: "INV-2026-000007" → "#000007".
+ *
+ * Sequences restart every year and the year lives in the part being dropped,
+ * so this is only safe on a row that shows a date beside the reference — the
+ * dashboard lists, not a page where the number stands alone. Anything that is
+ * not PREFIX-YEAR-SEQUENCE comes back untouched, which covers hand-entered and
+ * legacy references as well as a re-configured invoice prefix.
+ */
+export const shortRef = (ref: string | null | undefined) => {
+  if (!ref) return "";
+  // The prefix is a setting and may itself contain hyphens ("GST-INV"), so it
+  // is matched loosely; only the trailing -YEAR-SEQUENCE is required.
+  const m = /^[A-Za-z][\w-]*-\d{4}-(\d+)$/.exec(ref);
+  return m ? `#${m[1]}` : ref;
+};
+
 export const formatDate = (d: string | Date | null | undefined) => {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });

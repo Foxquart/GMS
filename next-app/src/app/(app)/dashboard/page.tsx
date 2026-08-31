@@ -16,7 +16,7 @@ import {
   Boxes,
 } from "lucide-react";
 import { api, errorMessage, errorReference } from "@/lib/api";
-import { currency, currencyFit, formatDate, invoiceStatusLabel } from "@/lib/format";
+import { currency, currencyFit, formatDate, invoiceStatusLabel, shortRef } from "@/lib/format";
 import {
   Badge,
   BentoGrid,
@@ -88,12 +88,9 @@ function Plate({
 /**
  * "Nothing here, and that is the good outcome."
  *
- * These three sections spend most days empty — no open jobs, nothing under its
+ * These sections spend most days empty — no open jobs, nothing under its
  * minimum, nobody in debt — and each was drawing a full `EmptyState`: an 84px
- * illustration inside `py-12`, about 200px to say "all clear". Three of them
- * stacked took a phone screen and a half to report an absence. A single row
- * says the same thing, and keeps the sections that *do* have something in them
- * within reach.
+ * illustration inside `py-12`, about 200px to say "all clear".
  *
  * `EmptyState` still earns its keep where arriving at an empty screen is a
  * dead end the person has to be led out of — a search with no results, a
@@ -110,6 +107,81 @@ function AllClear({ children }: { children: React.ReactNode }) {
       </span>
       {children}
     </p>
+  );
+}
+
+/**
+ * One row for every section that has nothing to report.
+ *
+ * Each quiet section used to cost a heading, an icon, a "see more" link and a
+ * sentence — about 110px to say an absence. On a slow day four of them stacked
+ * took most of a phone screen to tell the owner that nothing had happened,
+ * pushing the sections that *did* have something below the fold.
+ *
+ * They collapse into this instead, and it sits after the sections that do have
+ * content, so what needs attention is always above what does not. The
+ * shortcuts stay: each quiet section is still one tap away, as a chip.
+ */
+function QuietSections({ items }: { items: { label: string; href: string }[] }) {
+  if (!items.length) return null;
+  return (
+    <section aria-label="Nothing to report">
+      <div className="rounded-[var(--r-tile)] border border-[var(--hairline)] bg-[var(--surface)] px-3.5 py-3">
+        <p className="flex items-center gap-2.5 text-sm font-bold text-[var(--ink)]">
+          <span
+            aria-hidden="true"
+            className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[var(--sage)] text-[var(--forest)]"
+          >
+            <Check size={14} strokeWidth={3} />
+          </span>
+          All clear
+        </p>
+        <ul className="mt-2 flex flex-wrap gap-2">
+          {items.map((q) => (
+            <li key={q.href}>
+              <Link
+                href={q.href}
+                className={cn(
+                  "inline-flex min-h-11 items-center rounded-full border border-[var(--hairline)] px-3.5",
+                  "bg-[var(--surface-bright)] text-xs font-bold text-[var(--ink-muted)]",
+                  "transition-colors duration-150 ease-out",
+                  "hover:border-[var(--hairline-strong)] hover:text-[var(--ink)]",
+                )}
+              >
+                {q.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * How far a shelf sits below its own minimum, drawn rather than described.
+ *
+ * The track is the minimum; the fill is what is actually there. Half a bar
+ * means half of what you said you wanted — a shortfall you can read at a
+ * glance, where "Minimum 4 · Warehouse 12" made you do the subtraction.
+ *
+ * Every row in this list is already below its minimum, so the fill is one
+ * colour and the *length* carries the severity — colour is never the thing
+ * being read. The figures stay on screen beside it, so the bar is a second
+ * encoding of a fact that is also written down, never the only one.
+ */
+function StockBar({ value, min }: { value: number; min: number }) {
+  const pct = min > 0 ? Math.max(0, Math.min(100, (value / min) * 100)) : 100;
+  return (
+    <span
+      aria-hidden="true"
+      className="block h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-sunk)]"
+    >
+      <span
+        className="block h-full rounded-full bg-[var(--terracotta)]"
+        style={{ width: `${pct}%` }}
+      />
+    </span>
   );
 }
 
@@ -258,18 +330,23 @@ export default function DashboardPage() {
           className={HERO_TILE}
           label="Collected"
           value={currencyFit(summary?.todayCollected, HERO_FIT)}
-          footnote="Payments taken today"
           icon={<Wallet size={18} />}
         />
 
         {/* Row two is the work: what is open, and what is about to stop you
-            finishing it. */}
+            finishing it.
+
+            No footnotes on these two, or on Collected above. "Payments taken
+            today" under COLLECTED, "Open on the floor" under ACTIVE JOBS and
+            "Under the minimum" under LOW SHOP STOCK each restated the label
+            directly above them — three lines of type that carried no fact. The
+            footnotes that survive all carry a *second* figure: what the shelves
+            cost, how the day's jobs split open/closed. */}
         <StatTile
           size="sm"
           tone="bright"
           label="Active jobs"
           value={String(summary?.activeJobs ?? 0)}
-          footnote="Open on the floor"
           icon={<Wrench size={15} />}
         />
         <StatTile
@@ -277,7 +354,6 @@ export default function DashboardPage() {
           tone="bright"
           label="Low shop stock"
           value={String(summary?.lowStockCount ?? 0)}
-          footnote="Under the minimum"
           icon={<PackageX size={15} />}
         />
 

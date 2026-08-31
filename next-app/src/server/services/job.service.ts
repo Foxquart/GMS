@@ -144,6 +144,39 @@ export async function createJob(input: {
   return job;
 }
 
+/**
+ * How many jobs sit in each status, honouring the same search the list does.
+ *
+ * One grouped pass rather than four counts. The list itself is capped at 100
+ * rows, so these cannot be derived on the client without lying as soon as a
+ * workshop passes a hundred jobs — which every workshop does.
+ */
+export async function getJobStatusCounts(opts?: { q?: string }) {
+  const conditions = [];
+  const q = opts?.q?.trim();
+  if (q) {
+    const like = `%${q.toLowerCase()}%`;
+    conditions.push(
+      sql`(lower(${customers.name}) like ${like} or ${jobs.jobNumber} like ${like})`,
+    );
+  }
+
+  const rows = await db
+    .select({ status: jobs.status, total: sql<number>`count(*)::int` })
+    .from(jobs)
+    .innerJoin(customers, eq(jobs.customerId, customers.id))
+    .where(conditions.length ? and(...conditions) : undefined)
+    .groupBy(jobs.status);
+
+  const counts = { ALL: 0, OPEN: 0, COMPLETED: 0, CANCELLED: 0 } as Record<string, number>;
+  for (const row of rows as any[]) {
+    const n = Number(row.total ?? 0);
+    counts[row.status] = n;
+    counts.ALL += n;
+  }
+  return counts;
+}
+
 export async function listJobs(opts: {
   status?: string;
   q?: string;
