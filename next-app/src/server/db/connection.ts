@@ -8,6 +8,16 @@ const usePglite =
   (process.env.USE_PGLITE ?? "true") === "true" ||
   !process.env.DATABASE_URL;
 
+/**
+ * Which engine is actually behind `db`. Callers that report on the database
+ * itself need this: the embedded engine and a managed Postgres do not expose
+ * the same statistics, and reporting a figure the engine never collected as
+ * though it were measured is worse than saying it is unavailable.
+ */
+export function isPglite() {
+  return usePglite;
+}
+
 // Global singleton so Next.js dev/hot-reload reuses the same embedded DB.
 const globalForDb = globalThis as unknown as {
   db?: any;

@@ -127,6 +127,30 @@ body {
   background: var(--ink-label);
 }
 
+/*
+ * Operator-console chrome offsets. The 64px operator bar and the 56px tab
+ * strip are both fixed, and pages pin their own controls beneath the pair, so
+ * the offset lives in one variable rather than in every page's className.
+ *
+ * On a short viewport — a phone held sideways is ~320px tall — 120px of
+ * permanent chrome is over a third of the screen, so both bars give up their
+ * sticky behaviour and scroll away, and the offset pages pin against collapses
+ * with them. Keyed to height, not width: a tall narrow phone has no such
+ * problem and keeps its navigation in reach.
+ */
+.console-shell {
+  --console-sticky-top: calc(4rem + 3.5rem + 1px);
+}
+
+@media (max-height: 480px) {
+  .console-shell {
+    --console-sticky-top: 0px;
+  }
+  .console-shell .console-chrome {
+    position: static;
+  }
+}
+
 /**
  * Hides a scrollbar without disabling the scroll.
  *

@@ -39,7 +39,7 @@ export default function SuperadminHealthPage() {
         size="sm"
         onClick={() => refetch()}
         disabled={isRefetching}
-        className="self-start"
+        className="h-11 self-start sm:h-8"
       >
         <RefreshCw size={14} className={isRefetching ? "gear-spin" : undefined} />
         {isRefetching ? "Benchmarking…" : "Run benchmark"}
@@ -72,7 +72,10 @@ export default function SuperadminHealthPage() {
     <div className="space-y-5">
       {header}
 
-      <BentoGrid>
+      {/* From lg the hero keeps its double width while the other two readings
+          take a quarter each, rather than every tile carrying ~560px of fill
+          on a wide screen. */}
+      <BentoGrid className="lg:grid-cols-4">
         <StatTile
           className="col-span-2 min-h-[132px]"
           tone={statusTone(dbStatus) === "forest" ? latencyTone(dbLatency) : statusTone(dbStatus)}
@@ -115,8 +118,10 @@ export default function SuperadminHealthPage() {
             <DetailRow label="Threshold">
               <span className="tabular text-sm font-extrabold text-[var(--ink)]">500 ms</span>
             </DetailRow>
+            {/* A driver diagnostic can be one unbreakable token — a DSN, a
+                socket path — so it needs an explicit break opportunity. */}
             <DetailRow label="Diagnostic">
-              <span className="text-sm font-semibold text-[var(--ink-muted)]">
+              <span className="break-words text-sm font-semibold text-[var(--ink-muted)]">
                 {data?.database?.details ?? "No diagnostic returned"}
               </span>
             </DetailRow>
@@ -140,7 +145,7 @@ export default function SuperadminHealthPage() {
               </span>
             </DetailRow>
             <DetailRow label="Diagnostic">
-              <span className="text-sm font-semibold text-[var(--ink-muted)]">
+              <span className="break-words text-sm font-semibold text-[var(--ink-muted)]">
                 {data?.api?.details ?? "No diagnostic returned"}
               </span>
             </DetailRow>
@@ -157,12 +162,19 @@ export default function SuperadminHealthPage() {
   );
 }
 
-/** Two-column fact row: label left, figure right, never colliding. */
+/**
+ * Two-column fact row: label left, figure right, never colliding.
+ *
+ * The value used to be `shrink-0`, which pins it at max-content — a driver
+ * error or connection string in a Diagnostic row then ran straight out of the
+ * card. It now shrinks and breaks, and below sm it takes its own line instead
+ * of leaving a squashed column beside the label.
+ */
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-2.5">
-      <dt className="tile-label min-w-0 shrink text-[var(--ink-label)]">{label}</dt>
-      <dd className="min-w-0 shrink-0 text-right">{children}</dd>
+    <div className="flex flex-col gap-1 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <dt className="tile-label shrink-0 text-[var(--ink-label)]">{label}</dt>
+      <dd className="min-w-0 break-words sm:text-right">{children}</dd>
     </div>
   );
 }
@@ -172,17 +184,20 @@ function HealthSkeleton() {
     <div className="space-y-5" role="status" aria-live="polite">
       <span className="sr-only">Benchmarking database and API latency…</span>
       <div className="space-y-2">
-        <Skeleton className="h-7 w-44 rounded-full" />
-        <Skeleton className="h-4 w-80 rounded-full" />
+        <Skeleton className="h-7 w-full max-w-44 rounded-full" />
+        {/* A fixed w-80 overflows the 288px content column on a 320px phone. */}
+        <Skeleton className="h-4 w-full max-w-80 rounded-full" />
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <Skeleton className="col-span-2 h-[132px]" />
         <Skeleton className="h-28" />
         <Skeleton className="h-28" />
       </div>
+      {/* The fact rows stack label over value below sm, so the cards run
+          taller there than once the row splits into columns. */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <Skeleton className="h-60 rounded-[var(--r-card)]" />
-        <Skeleton className="h-60 rounded-[var(--r-card)]" />
+        <Skeleton className="h-[19.5rem] rounded-[var(--r-card)] sm:h-60" />
+        <Skeleton className="h-[19.5rem] rounded-[var(--r-card)] sm:h-60" />
       </div>
       <Skeleton className="h-44 rounded-[var(--r-panel)]" />
     </div>

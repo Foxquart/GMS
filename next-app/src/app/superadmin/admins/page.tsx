@@ -97,15 +97,17 @@ export default function SuperadminAdminsPage() {
 
   return (
     <div className="space-y-5">
-      {/* Pinned under the 64px operator bar: the page's identity and the one
-          action it exists for. The strapline and the three count tiles are
-          orientation, not tools — they scroll away with the first rows. */}
-      <StickyControls className="top-16 lg:top-16">
+      {/* Pinned below the console's operator bar *and* its tab strip — both are
+          opaque and sit above this in z-order, so anything less than the
+          shell's own `--console-sticky-top` would hide this page's only action
+          behind them. The strapline and the three count tiles are orientation,
+          not tools — they scroll away with the first rows. */}
+      <StickyControls className="top-[var(--console-sticky-top)] lg:top-[var(--console-sticky-top)]">
         <div className="flex items-center justify-between gap-3">
           <h1 className="truncate text-xl font-extrabold tracking-tight text-[var(--ink)] sm:text-2xl">
             Admin accounts
           </h1>
-          <Button size="md" onClick={openCreate} className="shrink-0">
+          <Button size="md" onClick={openCreate} className="h-11 shrink-0 sm:h-10">
             <UserPlus size={16} />
             New admin
           </Button>
@@ -158,7 +160,7 @@ export default function SuperadminAdminsPage() {
               description="Create the first garage admin so someone can open the workshop."
               illustration={<SpotTools size={84} />}
               action={
-                <Button size="md" onClick={() => setShowCreate(true)}>
+                <Button size="md" onClick={() => setShowCreate(true)} className="h-11 sm:h-10">
                   <UserPlus size={16} />
                   Create the first admin
                 </Button>
@@ -189,7 +191,10 @@ export default function SuperadminAdminsPage() {
                         {String(admin.email ?? "?")[0]?.toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
+                        {/* Two un-shrinkable badges beside a name leave it a
+                            character or two at 320px, so the pair drops to its
+                            own line instead of starving the name. */}
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                           <p className="min-w-0 truncate text-sm font-extrabold text-[var(--ink)]">
                             {admin.name}
                           </p>
@@ -201,17 +206,23 @@ export default function SuperadminAdminsPage() {
                         <p className="mt-0.5 truncate text-xs text-[var(--ink-muted)]">
                           {admin.email}
                         </p>
-                        <p className="tile-label mt-1 text-[var(--ink-label)]">
+                        {/* Not `.tile-label`: a full locale timestamp in 10px
+                            wide-tracked caps runs to two lines in this column. */}
+                        <p className="mt-1 text-[11px] font-semibold text-[var(--ink-label)]">
                           Last sign-in {admin.lastLoginAt ? formatWhen(admin.lastLoginAt) : "never"}
                         </p>
                       </div>
                     </div>
 
-                    {/* Actions right, never wrapping into the identity column. */}
-                    <div className="flex shrink-0 items-center gap-2 self-end sm:self-center">
+                    {/* Actions right, never wrapping into the identity column.
+                        Both controls are full 44px targets on touch and the
+                        destructive one gets extra separation from its
+                        neighbour there, so a mis-tap can't delete an account. */}
+                    <div className="flex shrink-0 items-center gap-3 self-end sm:gap-2 sm:self-center">
                       <Button
                         variant={admin.isActive ? "outline" : "secondary"}
                         size="sm"
+                        className="h-11 sm:h-8"
                         onClick={() =>
                           toggleStatus.mutate({ id: admin.id, isActive: !admin.isActive })
                         }
@@ -232,6 +243,7 @@ export default function SuperadminAdminsPage() {
                         <Button
                           variant="danger"
                           size="icon"
+                          className="h-11 w-11 sm:h-10 sm:w-10"
                           aria-label={`Delete ${admin.email}`}
                           title="Delete account"
                           disabled={deletePending}
@@ -301,12 +313,13 @@ export default function SuperadminAdminsPage() {
               type="button"
               variant="ghost"
               size="md"
+              className="h-11 sm:h-10"
               onClick={() => setShowCreate(false)}
               disabled={createAdmin.isPending}
             >
               Cancel
             </Button>
-            <Button type="submit" size="md" disabled={!canCreate}>
+            <Button type="submit" size="md" className="h-11 sm:h-10" disabled={!canCreate}>
               {createAdmin.isPending ? "Creating…" : "Create admin"}
             </Button>
           </div>
@@ -327,7 +340,9 @@ function AdminsSkeleton() {
       </div>
       <div className="space-y-2.5">
         {[0, 1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-[104px] rounded-[var(--r-card)]" />
+          // A row stacks its actions under the identity below sm, so it is
+          // roughly half again as tall there.
+          <Skeleton key={i} className="h-[170px] rounded-[var(--r-card)] sm:h-[104px]" />
         ))}
       </div>
     </div>

@@ -66,9 +66,12 @@ export default function SuperadminOverviewPage() {
         onRefresh={() => refetch()}
       />
 
-      <BentoGrid>
+      {/* The console column is capped at max-w-6xl, so two columns on a 1920px
+          screen leaves each tile ~560px of near-empty fill. From lg the four
+          readings sit in one row of their own beneath the full-width hero. */}
+      <BentoGrid className="lg:grid-cols-4">
         <StatTile
-          className="col-span-2 min-h-[132px]"
+          className="col-span-2 min-h-[132px] lg:col-span-4"
           tone={statusTone(overview.systemStatus)}
           label="System status"
           value={overview.systemStatus || "HEALTHY"}
@@ -165,7 +168,7 @@ export default function SuperadminOverviewPage() {
               {recentAudit.slice(0, 6).map((log: any) => (
                 <div
                   key={log.id}
-                  className="flex items-start justify-between gap-3 rounded-[var(--r-tile)] bg-[var(--forest-deep)] px-3 py-2.5"
+                  className="flex flex-col gap-0.5 rounded-[var(--r-tile)] bg-[var(--forest-deep)] px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between sm:gap-3"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-xs font-extrabold text-[var(--ink-on-dark)]">
@@ -175,6 +178,9 @@ export default function SuperadminOverviewPage() {
                       {log.details || log.userName || "System action"}
                     </p>
                   </div>
+                  {/* A locale time string is unbreakable and never shrinks; beside
+                      an action name inside a phone-width panel it leaves the name
+                      barely a word wide, so it drops to its own line first. */}
                   <span className="tabular shrink-0 text-[11px] font-semibold text-[var(--ink-on-dark-muted)]">
                     {formatTime(log.createdAt)}
                   </span>
@@ -208,7 +214,15 @@ function OverviewHeader({
           {lastCheckAt ? ` Last reading ${formatTime(lastCheckAt)}.` : ""}
         </p>
       </div>
-      <Button variant="outline" size="sm" onClick={onRefresh} disabled={isRefetching} className="self-start">
+      {/* Full 44px touch target on a phone; back to the compact sm button
+          once there is a pointer. */}
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onRefresh}
+        disabled={isRefetching}
+        className="h-11 self-start sm:h-8"
+      >
         <RefreshCw size={14} className={isRefetching ? "gear-spin" : undefined} />
         {isRefetching ? "Checking…" : "Run checks now"}
       </Button>
@@ -230,7 +244,7 @@ function CheckRow({
   latencyMs: number;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-[var(--r-tile)] bg-[var(--surface-sunk)] p-3">
+    <div className="flex flex-col gap-2 rounded-[var(--r-tile)] bg-[var(--surface-sunk)] p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
       <div className="flex min-w-0 items-center gap-2.5">
         <span className="shrink-0 text-[var(--ink-label)]">{icon}</span>
         <div className="min-w-0">
@@ -238,7 +252,9 @@ function CheckRow({
           <p className="truncate text-[11px] text-[var(--ink-muted)]">{detail}</p>
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      {/* Latency plus a status pill is ~150px that cannot shrink; held on one
+          line at 320px it starved the component name down to "Pos…". */}
+      <div className="flex shrink-0 items-center gap-2 pl-[26px] sm:pl-0">
         <span className="tabular text-xs font-extrabold text-[var(--ink)]">{latencyMs} ms</span>
         <Badge color={statusBadgeColor(status)} dot>
           {(status ?? "HEALTHY").toUpperCase()}
@@ -253,11 +269,13 @@ function OverviewSkeleton() {
     <div className="space-y-5" role="status" aria-live="polite">
       <span className="sr-only">Running system health checks…</span>
       <div className="space-y-2">
-        <Skeleton className="h-7 w-52 rounded-full" />
-        <Skeleton className="h-4 w-80 rounded-full" />
+        <Skeleton className="h-7 w-full max-w-52 rounded-full" />
+        {/* A fixed w-80 is wider than the 288px content column on a 320px
+            phone, so the shell itself scrolled the document sideways. */}
+        <Skeleton className="h-4 w-full max-w-80 rounded-full" />
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:gap-4">
-        <Skeleton className="col-span-2 h-[132px]" />
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <Skeleton className="col-span-2 h-[132px] lg:col-span-4" />
         <Skeleton className="h-28" />
         <Skeleton className="h-28" />
         <Skeleton className="h-28" />
@@ -265,10 +283,12 @@ function OverviewSkeleton() {
       </div>
       {/* The activity panel no longer scrolls inside itself, so it is the
           taller of the pair and the row stretches the checks card to match
-          it — the shell has to say the same thing or the card grows on paint. */}
+          it — the shell has to say the same thing or the card grows on paint.
+          Both rows stack their meta below phone width, so both run taller
+          there than they do once the columns split. */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <Skeleton className="h-52 rounded-[var(--r-card)] lg:h-[26rem]" />
-        <Skeleton className="h-[26rem] rounded-[var(--r-panel)]" />
+        <Skeleton className="h-64 rounded-[var(--r-card)] sm:h-52 lg:h-[26rem]" />
+        <Skeleton className="h-[32rem] rounded-[var(--r-panel)] sm:h-[26rem]" />
       </div>
     </div>
   );
