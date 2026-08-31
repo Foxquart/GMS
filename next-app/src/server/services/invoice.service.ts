@@ -8,6 +8,7 @@ import {
   jobLabour,
   jobParts,
   jobs,
+  parts,
   payments,
   settings,
   stockMovements,
@@ -87,6 +88,11 @@ async function changeBalance(
     locationId,
     movementType,
     quantity: delta,
+    // Cost captured as the row is written, so a later price edit cannot move
+    // what this consumption was worth. A correlated subselect rather than a
+    // prior SELECT because completeJob calls this once per part in a loop —
+    // fetching the price separately would be one more round trip per part.
+    unitCost: sql`coalesce((select ${parts.purchasePrice} from ${parts} where ${parts.id} = ${partId}), '0')`,
     referenceType: reference?.type,
     referenceId: reference?.id,
     notes,

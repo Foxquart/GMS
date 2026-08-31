@@ -6,12 +6,66 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, ArrowLeftRight, Layers, Tags, ChevronDown } from "lucide-react";
 import { api, errorMessage, errorReference } from "@/lib/api";
+import { formatDateTime } from "@/lib/format";
 import { Badge, Button, ErrorState, SectionHeader, Skeleton } from "@/components/ui";
 import { PartsBrowser } from "@/components/parts-browser";
 import { CategorySheet } from "@/components/category-sheets";
 import { REFERENCE_QUERY } from "@/lib/query-keys";
 import { cn } from "@/lib/cn";
 import type { Category } from "@/components/inventory-types";
+
+/**
+ * When the floor was last restocked from the back room.
+ *
+ * A one-line answer to "has anyone moved stock lately?", which is the question
+ * behind a shop shelf running down while the warehouse is full. Deliberately
+ * not period-scoped and deliberately not on the dashboard: it is reassurance
+ * about stock, not something to act on today, so it lives where stock
+ * questions get asked.
+ *
+ * Shares the `["transfers"]` cache with /inventory/transfers, so arriving from
+ * there paints instantly and this costs no extra request.
+ *
+ * On error or with no transfers ever recorded it renders nothing. A
+ * non-essential fact must not put an alert box above the category grid.
+ */
+function LastTransfer() {
+  const { data: transfers, isPending, isError } = useQuery({
+    queryKey: ["transfers"],
+    queryFn: () => api<any[]>("/api/inventory/transfers"),
+  });
+
+  if (isPending) return <Skeleton className="h-[3.25rem] rounded-[var(--r-tile)]" />;
+  if (isError || !transfers?.length) return null;
+
+  const t = transfers[0];
+  const lines = Array.isArray(t.items) ? t.items.length : 0;
+
+  return (
+    <Link
+      href="/inventory/transfers"
+      className={cn(
+        "flex min-h-[3.25rem] items-center gap-3 rounded-[var(--r-tile)]",
+        "border border-[var(--hairline)] bg-[var(--surface-bright)] px-3.5 py-2.5",
+        "transition-colors duration-150 ease-out hover:border-[var(--hairline-strong)]",
+      )}
+    >
+      <div className="min-w-0 flex-1">
+        <p className="tile-label text-[var(--ink-label)]">Last stock move</p>
+        <p className="truncate text-sm font-bold text-[var(--ink)]">
+          {lines} part{lines === 1 ? "" : "s"} · {formatDateTime(t.createdAt)}
+        </p>
+      </div>
+      {/* The same badge, with the same colours, as the transfers page itself —
+          two screens describing one direction the same way. */}
+      <div className="shrink-0">
+        <Badge color={t.fromCode === "SHOP" ? "amber" : "blue"}>
+          {t.fromName ?? "Warehouse"} → {t.toName ?? "Shop"}
+        </Badge>
+      </div>
+    </Link>
+  );
+}
 
 /**
  * The inventory hub: pick a category, or search the whole shelf.
@@ -75,6 +129,8 @@ export default function InventoryPage() {
           </Link>
         </div>
       </div>
+
+      <LastTransfer />
 
       {/* ── Categories ────────────────────────────────────────────────
           Discovery only. A tile navigates; nothing expands, nothing is

@@ -16,7 +16,6 @@ import {
   Layers,
   Trash2,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { ApiClientError, api, errorMessage, errorReference } from "@/lib/api";
 import {
   Badge,
@@ -33,6 +32,7 @@ import {
 } from "@/components/ui";
 import { SpotTools } from "@/components/illustrations";
 import { formatDateTime } from "@/lib/format";
+import { useGoBack } from "@/hooks/use-go-back";
 import { cn } from "@/lib/cn";
 
 type LocationCode = "SHOP" | "WAREHOUSE";
@@ -56,7 +56,7 @@ type Picked = { part: Part; qty: number | string };
 
 const LOCATION_META: Record<LocationCode, { label: string; icon: typeof Store }> = {
   WAREHOUSE: { label: "Warehouse", icon: Warehouse },
-  SHOP: { label: "Shop floor", icon: Store },
+  SHOP: { label: "Shop", icon: Store },
 };
 
 const stockAt = (part: Part, where: LocationCode) =>
@@ -67,7 +67,7 @@ const IDLE_RESULTS = 6;
 const SEARCH_RESULTS = 25;
 
 export default function TransfersPage() {
-  const router = useRouter();
+  const goBack = useGoBack("/inventory");
   const qc = useQueryClient();
 
   // Which way the stock goes. The transfers table has always carried both
@@ -105,7 +105,12 @@ export default function TransfersPage() {
     refetch: refetchParts,
   } = useQuery({
     queryKey: ["transfer-parts", search],
-    queryFn: () => api<Part[]>("/api/parts", { params: { q: search || undefined } }),
+    // Search-driven, so one page is the right shape here — you narrow by name
+    // rather than scrolling the catalogue.
+    queryFn: () =>
+      api<{ rows: Part[] }>("/api/parts", {
+        params: { q: search || undefined, pageSize: "100", page: "1" },
+      }).then((r) => r.rows),
     placeholderData: keepPreviousData,
   });
 
@@ -181,6 +186,31 @@ export default function TransfersPage() {
   };
 
   /**
+   * Every part in one category, across as many pages as it takes.
+   *
+   * `/api/parts` is paged now, so a single request would quietly return the
+   * first 100 and "add all" would mean "add some" — the exact failure the
+   * comment below was written to prevent. The first response reports
+   * `pageCount`, so the remainder goes out in parallel rather than in a chain.
+   */
+  const fetchAllPartsInCategory = async (categoryId: string): Promise<Part[]> => {
+    type Page = { rows: Part[]; pageCount: number };
+    const first = await api<Page>("/api/parts", {
+      params: { categoryId, page: "1", pageSize: "100" },
+    });
+    if (first.pageCount <= 1) return first.rows;
+
+    const rest = await Promise.all(
+      Array.from({ length: first.pageCount - 1 }, (_, i) =>
+        api<Page>("/api/parts", {
+          params: { categoryId, page: String(i + 2), pageSize: "100" },
+        }),
+      ),
+    );
+    return [first.rows, ...rest.map((p) => p.rows)].flat();
+  };
+
+  /**
    * Add every part in the ticked categories. Fetched per category rather than
    * read off the search results, so "add all" means all of it — not just the
    * page of matches currently on screen.
@@ -189,9 +219,7 @@ export default function TransfersPage() {
     if (!catIds.length) return;
     setBulkPending(true);
     try {
-      const lists = await Promise.all(
-        catIds.map((id) => api<Part[]>("/api/parts", { params: { categoryId: id } })),
-      );
+      const lists = await Promise.all(catIds.map((id) => fetchAllPartsInCategory(id)));
       const rows = lists.flat();
       const withStock = rows.filter((p) => stockAt(p, from) > 0);
       const empty = rows.length - withStock.length;
@@ -286,7 +314,7 @@ export default function TransfersPage() {
           moving both scroll with everything else. */}
       <StickyControls>
         <div className="flex items-center gap-3">
-          <CircleButton onDark={false} onClick={() => router.back()} aria-label="Back">
+          <CircleButton onDark={false} onClick={goBack} aria-label="Back">
             <ArrowLeft size={18} />
           </CircleButton>
           <div className="min-w-0">

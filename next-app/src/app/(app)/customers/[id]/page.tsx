@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -31,6 +31,7 @@ import {
   RecordBar,
 } from "@/components/ui";
 import { SpotClipboard, SpotTools, VEHICLE_SPOT } from "@/components/illustrations";
+import { useGoBack } from "@/hooks/use-go-back";
 import { cn } from "@/lib/cn";
 import {
   currency,
@@ -103,7 +104,7 @@ function CustomerSkeleton() {
  */
 export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
+  const goBack = useGoBack("/customers");
 
   // The hero carries the back control until it scrolls away; from there the
   // condensed bar takes over. A callback ref (not useRef) because the hero
@@ -198,7 +199,7 @@ export default function CustomerDetailPage() {
           subtitle={customer.phone}
           eyebrow="Customer"
           leading={
-            <CircleButton onClick={() => router.back()} aria-label="Back">
+            <CircleButton onClick={goBack} aria-label="Back">
               <ArrowLeft size={18} />
             </CircleButton>
           }
@@ -246,7 +247,7 @@ export default function CustomerDetailPage() {
       {/* ── Condensed record bar — arrives when the hero leaves ─────── */}
       <RecordBar
         shown={heroGone}
-        onBack={() => router.back()}
+        onBack={goBack}
         title={customer.name}
         meta={<span className="tabular">{customer.phone}</span>}
         trailing={

@@ -6,6 +6,9 @@ import {
   createPart,
   updatePart,
   getPart,
+  type PartSort,
+  type PartStockFilter,
+  type StockLocationCode,
 } from "@/server/services/inventory.service";
 import { assertSubCategoryInCategory } from "@/server/services/subcategory.service";
 
@@ -13,12 +16,19 @@ export async function GET(request: NextRequest) {
   try {
     await requireAuth();
     const sp = request.nextUrl.searchParams;
+    const page = Number(sp.get("page"));
+    const pageSize = Number(sp.get("pageSize"));
     return ok(
       await listParts({
         q: sp.get("q") ?? undefined,
         categoryId: sp.get("categoryId") ?? undefined,
         subCategoryId: sp.get("subCategoryId") ?? undefined,
         includeArchived: sp.get("archived") === "1",
+        sort: (sp.get("sort") as PartSort) ?? undefined,
+        location: (sp.get("location") as StockLocationCode) ?? undefined,
+        stock: (sp.get("stock") as PartStockFilter) ?? undefined,
+        page: Number.isFinite(page) && page > 0 ? page : undefined,
+        pageSize: Number.isFinite(pageSize) && pageSize > 0 ? pageSize : undefined,
       }),
     );
   } catch (err) {

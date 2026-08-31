@@ -17,10 +17,12 @@ import {
 } from "@/components/ui";
 import { AnimatedDropdown } from "@/components/animated-dropdown";
 import { REFERENCE_QUERY } from "@/lib/query-keys";
+import { useGoBack } from "@/hooks/use-go-back";
 import { cn } from "@/lib/cn";
 
 export default function NewPartPage() {
   const router = useRouter();
+  const goBack = useGoBack("/inventory");
   const qc = useQueryClient();
   const [name, setName] = useState("");
   const [partNumber, setPartNumber] = useState("");
@@ -112,7 +114,7 @@ export default function NewPartPage() {
   return (
     <div className="mx-auto max-w-lg space-y-5">
       <div className="flex items-center gap-3">
-        <CircleButton onDark={false} onClick={() => router.back()} aria-label="Back">
+        <CircleButton onDark={false} onClick={goBack} aria-label="Back">
           <ArrowLeft size={18} />
         </CircleButton>
         <div className="min-w-0">

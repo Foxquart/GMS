@@ -1,3 +1,5 @@
+import { Store, Warehouse } from "lucide-react";
+
 /**
  * Shapes the inventory screens share.
  *
@@ -44,3 +46,23 @@ export type SubCategory = {
 
 /** What went wrong inside an open sheet, shown next to the fields. */
 export type SheetError = { message: string; reference?: string };
+
+export type StockLocationCode = "SHOP" | "WAREHOUSE";
+
+/**
+ * The two stock locations, named once.
+ *
+ * The same shop was being called "Shop stock", "Shop", "Shop floor" and "In
+ * shop" across five screens, and the warehouse abbreviated as `W/h` in one
+ * place and `W/H` in another. Shop is listed first here and everywhere it is
+ * rendered — the dashboard used to lead with Warehouse, which quietly made
+ * the two screens disagree about which column was which.
+ */
+export const STOCK_LOCATIONS = [
+  { code: "SHOP", label: "Shop", icon: Store },
+  { code: "WAREHOUSE", label: "Warehouse", icon: Warehouse },
+] as const satisfies readonly {
+  code: StockLocationCode;
+  label: string;
+  icon: typeof Store;
+}[];

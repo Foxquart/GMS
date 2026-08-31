@@ -77,6 +77,42 @@ export const currencyFit = (
 };
 
 /**
+ * A share of a total, as a whole percent.
+ *
+ * Returns "—" rather than a number when there is no total to be a share of.
+ * Without that guard every breakdown row on a quiet day prints "NaN%", which
+ * is how a page stops being trusted.
+ */
+export const pct = (part: number | null | undefined, total: number | null | undefined) => {
+  const t = Number(total ?? 0);
+  if (!(t > 0)) return "—";
+  return `${Math.round((Number(part ?? 0) / t) * 100)}%`;
+};
+
+/** The same share as a 0–100 number, for bar widths. Never NaN. */
+export const share = (part: number | null | undefined, total: number | null | undefined) => {
+  const t = Number(total ?? 0);
+  if (!(t > 0)) return 0;
+  return Math.min(100, Math.max(0, (Number(part ?? 0) / t) * 100));
+};
+
+/**
+ * How long a job took, from opening to completion.
+ *
+ * Hours below a day, days above — "38h" is arithmetic the reader has to do,
+ * "1.6 days" is the answer. `null` means no completed job in the period, and
+ * prints as an absence rather than as zero: "0h" would be a claim that work is
+ * instant.
+ */
+export const turnaround = (hours: number | null | undefined) => {
+  if (hours == null || !Number.isFinite(hours)) return "—";
+  const h = Math.max(0, hours);
+  if (h < 24) return `${h < 10 ? h.toFixed(1).replace(/\.0$/, "") : Math.round(h)}h`;
+  const days = h / 24;
+  return `${days < 10 ? days.toFixed(1).replace(/\.0$/, "") : Math.round(days)} days`;
+};
+
+/**
  * The tail of a document number: "INV-2026-000007" → "#000007".
  *
  * Sequences restart every year and the year lives in the part being dropped,

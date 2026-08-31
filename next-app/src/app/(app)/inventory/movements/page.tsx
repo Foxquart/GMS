@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, History, Package } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { api, errorMessage, errorReference } from "@/lib/api";
 import {
   Badge,
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui";
 import { SpotTyre } from "@/components/illustrations";
 import { formatDateTime } from "@/lib/format";
+import { useGoBack } from "@/hooks/use-go-back";
 import { cn } from "@/lib/cn";
 
 const movementColor = (m: string) =>
@@ -38,7 +39,7 @@ const FILTERS = [
 ];
 
 export default function MovementsPage() {
-  const router = useRouter();
+  const goBack = useGoBack("/inventory");
   const searchParams = useSearchParams();
   const partId = searchParams.get("partId") ?? undefined;
   const [locationCode, setLocationCode] = useState("");
@@ -58,7 +59,7 @@ export default function MovementsPage() {
           notice, are read once and then scroll away. */}
       <StickyControls className="space-y-3">
         <div className="flex items-center gap-3">
-          <CircleButton onDark={false} onClick={() => router.back()} aria-label="Back">
+          <CircleButton onDark={false} onClick={goBack} aria-label="Back">
             <ArrowLeft size={18} />
           </CircleButton>
           <div className="min-w-0">

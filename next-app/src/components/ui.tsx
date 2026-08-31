@@ -494,6 +494,56 @@ export const BentoGrid = ({ className, ...props }: React.HTMLAttributes<HTMLDivE
   <div className={cn("grid grid-cols-2 gap-3 sm:gap-4", className)} {...props} />
 );
 
+/**
+ * One share of a total, drawn as a filled length on a track.
+ *
+ * Every breakdown in this app — the shop/warehouse split, labour against
+ * parts, the payment mix, the vehicle mix — is a stack of these, one per
+ * labelled row, rather than one stacked multi-colour bar. That is a
+ * measured decision, not a stylistic one:
+ *
+ * The palette has four fills and they are low-chroma by design. Run through a
+ * colour validator, the only plausible pair (`--forest` against `--sage`)
+ * fails on lightness band and chroma floor, and `--sage` sits at 1.09:1
+ * against the track — invisible as a fill. `--forest` on the same track is
+ * 9.45:1. So one hue is the only one that can carry a mark here, and a
+ * five-category stacked bar would have needed five.
+ *
+ * Length is therefore the encoding and the label beside it is the identity,
+ * which is the same reasoning `StockBar` on the dashboard already documents.
+ * It also reads better on a 360px phone: a 3% slice is legible as a 3% bar on
+ * its own row and unhittable as a segment inside a shared one, and there is no
+ * legend to cross-reference.
+ *
+ * `aria-hidden`, always: the row states the value and the percentage as text,
+ * so nothing here is carried by the bar alone.
+ */
+export const ShareBar = ({
+  value,
+  total,
+  className,
+}: {
+  value: number;
+  total: number;
+  /** Extra classes for the track — height overrides live here. */
+  className?: string;
+}) => {
+  const width = total > 0 ? Math.min(100, Math.max(0, (value / total) * 100)) : 0;
+  return (
+    <div
+      aria-hidden="true"
+      className={cn("h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-sunk)]", className)}
+    >
+      <div
+        className="h-full rounded-full bg-[var(--forest)] transition-[width] duration-300 ease-out"
+        // A nonzero share never renders as nothing: below about 2px the fill
+        // disappears and the row reads as "none", which is a different fact.
+        style={{ width: width > 0 ? `max(3px, ${width}%)` : 0 }}
+      />
+    </div>
+  );
+};
+
 export const Badge = ({
   className,
   children,

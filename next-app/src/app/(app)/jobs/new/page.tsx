@@ -19,16 +19,17 @@ import {
 } from "@/components/ui";
 import { AnimatedDropdown } from "@/components/animated-dropdown";
 import { SearchSelect } from "@/components/search-select";
+import { useGoBack } from "@/hooks/use-go-back";
 import { VEHICLE_TYPES, currency, vehicleTypeLabel } from "@/lib/format";
 import { VEHICLE_SPOT } from "@/components/illustrations";
 
 export default function NewJobPage() {
-  const router = useRouter();
+  const goBack = useGoBack("/jobs");
 
   return (
     <div className="mx-auto max-w-lg space-y-5">
       <header className="flex items-center gap-3">
-        <CircleButton onDark={false} onClick={() => router.back()} aria-label="Back">
+        <CircleButton onDark={false} onClick={goBack} aria-label="Back">
           <ArrowLeft size={18} />
         </CircleButton>
         <div className="min-w-0">

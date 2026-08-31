@@ -210,6 +210,13 @@ describe("credit & customer billing figures", () => {
     expect(report.invoicesCount).toBe(1);
     expect(report.outstanding).toBe(1200);
 
+    // The dashboard has to agree with the report it links to. Its own
+    // today-billed query omitted this filter, so the two screens disagreed by
+    // the value of anything cancelled that day — 1650 here, against 1200.
+    const { summary, recentInvoices } = await getDashboard();
+    expect(summary.todayBilled).toBe(1200);
+    expect(recentInvoices.map((i: any) => i.id)).not.toContain(invoice2.id);
+
     const outstanding = await getCustomerOutstanding();
     expect(outstanding.find((o: any) => o.customerId === customer.id)?.dueAmount).toBe(1200);
 

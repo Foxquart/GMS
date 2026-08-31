@@ -59,6 +59,7 @@ import {
   PAYMENT_METHODS,
   paymentMethodLabel,
 } from "@/lib/format";
+import { useGoBack } from "@/hooks/use-go-back";
 import { cn } from "@/lib/cn";
 
 const PAY_TYPES = [
@@ -125,6 +126,7 @@ function LineRow({
 export default function JobDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const goBack = useGoBack("/jobs");
   const qc = useQueryClient();
 
   const { data, isLoading, isError, error, refetch } = useQuery({
@@ -186,8 +188,15 @@ export default function JobDetailPage() {
     error: partsError,
     refetch: refetchParts,
   } = useQuery({
-    queryKey: ["parts"],
-    queryFn: () => api<any[]>("/api/parts"),
+    queryKey: ["parts", "picker"],
+    // This picker filters client-side over everything it is given, so it asks
+    // for one large page. That keeps today's behaviour exactly — but it is the
+    // same ceiling the parts list just moved off, and a workshop with
+    // thousands of parts will need this to search server-side instead.
+    queryFn: () =>
+      api<{ rows: any[] }>("/api/parts", { params: { pageSize: "100", page: "1" } }).then(
+        (r) => r.rows,
+      ),
   });
 
   const job = data?.job;
@@ -523,7 +532,7 @@ export default function JobDetailPage() {
           title={data.customer?.name ?? "Customer"}
           subtitle={`${vehicleTypeLabel(vehicleType)} · Opened ${formatDate(job.createdAt)}`}
           leading={
-            <CircleButton onDark={heroOnDark} onClick={() => router.back()} aria-label="Back">
+            <CircleButton onDark={heroOnDark} onClick={goBack} aria-label="Back">
               <ArrowLeft size={18} />
             </CircleButton>
           }
@@ -559,7 +568,7 @@ export default function JobDetailPage() {
       {/* ── Condensed record bar — arrives when the hero leaves ─────── */}
       <RecordBar
         shown={heroGone}
-        onBack={() => router.back()}
+        onBack={goBack}
         title={data.customer?.name ?? "Customer"}
         meta={
           <>
@@ -1050,7 +1059,7 @@ export default function JobDetailPage() {
                         <span className="flex shrink-0 items-center gap-1.5">
                           <Badge color={p.shopStock > 0 ? "green" : "gray"}>Shop {p.shopStock}</Badge>
                           <Badge color={p.warehouseStock > 0 ? "blue" : "gray"}>
-                            W/H {p.warehouseStock}
+                            Warehouse {p.warehouseStock}
                           </Badge>
                           {selected && <Check size={16} className="text-[var(--forest)]" />}
                         </span>

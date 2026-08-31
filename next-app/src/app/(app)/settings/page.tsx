@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Building2, Check, FileText, Receipt, RotateCcw } from "lucide-react";
+import { ArrowLeft, Building2, Check, FileText, Receipt, RotateCcw } from "lucide-react";
 import { api, errorMessage, errorReference } from "@/lib/api";
 import {
   Button,
   Card,
+  CircleButton,
   ErrorState,
   Field,
   InlineError,
@@ -17,6 +18,7 @@ import {
   Skeleton,
   Textarea,
 } from "@/components/ui";
+import { useGoBack } from "@/hooks/use-go-back";
 
 const KEYS = [
   "businessName",
@@ -39,6 +41,7 @@ const FALLBACK: Record<SettingKey, string> = {
 
 export default function SettingsPage() {
   const qc = useQueryClient();
+  const goBack = useGoBack("/dashboard");
   const [edits, setEdits] = useState<Partial<Record<SettingKey, string>>>({});
   const [justSaved, setJustSaved] = useState(false);
   const [saveError, setSaveError] = useState<{ message: string; reference?: string } | null>(null);
@@ -92,12 +95,19 @@ export default function SettingsPage() {
     return () => clearTimeout(t);
   }, [justSaved]);
 
+  {/* Settings sits in the menu, not the mobile bottom bar, so without this
+      arrow a phone had no way out of it but the browser gesture. */}
   const header = (
-    <div>
-      <h1 className="text-2xl font-extrabold tracking-tight text-[var(--ink)]">Settings</h1>
-      <p className="mt-1 text-sm text-[var(--ink-muted)]">
-        Your workshop&apos;s details and the defaults every new invoice starts from.
-      </p>
+    <div className="flex items-start gap-3">
+      <CircleButton onDark={false} onClick={goBack} aria-label="Back" className="shrink-0">
+        <ArrowLeft size={18} />
+      </CircleButton>
+      <div className="min-w-0">
+        <h1 className="text-2xl font-extrabold tracking-tight text-[var(--ink)]">Settings</h1>
+        <p className="mt-1 text-sm text-[var(--ink-muted)]">
+          Your workshop&apos;s details and the defaults every new invoice starts from.
+        </p>
+      </div>
     </div>
   );
 

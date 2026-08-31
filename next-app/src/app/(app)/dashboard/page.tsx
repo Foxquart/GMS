@@ -16,14 +16,22 @@ import {
   Boxes,
 } from "lucide-react";
 import { api, errorMessage, errorReference } from "@/lib/api";
-import { currency, currencyFit, formatDate, invoiceStatusLabel, shortRef } from "@/lib/format";
+import {
+  currency,
+  currencyFit,
+  formatDate,
+  invoiceStatusLabel,
+  pct,
+} from "@/lib/format";
 import {
   Badge,
   BentoGrid,
   ErrorState,
   SectionHeader,
+  ShareBar,
   Skeleton,
   StatTile,
+  Tile,
 } from "@/components/ui";
 import { SpotClipboard, SpotOilCan, VEHICLE_SPOT } from "@/components/illustrations";
 import { cn } from "@/lib/cn";
@@ -50,11 +58,35 @@ const HERO_TILE = "min-h-[9.5rem] justify-between gap-3 p-4";
  * floor while the tile is still shrinking. Past the budget `currencyFit` hands
  * back the short form rather than letting the figure wrap or truncate.
  *
- * Only the hero pair needs a budget now. The four small tiles below carry
- * counts and unit totals, which are short by nature — the currency figures
- * that needed the wider `SMALL_FIT` have moved to /reports.
+ * The two small tiles below carry counts, which are short by nature. The one
+ * other currency figure on the grid — stock on hand — sits in a full-width
+ * tile and gets its own budget below.
  */
 const HERO_FIT = { em: 3.8 };
+
+/**
+ * The same budget for the `col-span-2` tile, which is roughly twice the width
+ * of a hero and can therefore hold about twice the figure.
+ *
+ * This is what earns the merge: stock at cost runs to eight digits and three
+ * separators in a workshop of any size, which is ~5.9em. In a half-width tile
+ * that was over budget and came back as "₹2.21Cr"; here the exact figure fits,
+ * and an inventory total is a number you reconcile against, not one you skim.
+ */
+const WIDE_FIT = { em: 7.6 };
+
+/** How many debtors the dashboard names before handing off to /customers. */
+const OUTSTANDING_PREVIEW = 5;
+
+/**
+ * When an open job stops being "in progress" and starts being "forgotten".
+ *
+ * Two days is inside anyone's working memory. A week is the point at which a
+ * job on the floor has become a customer wondering where their vehicle is,
+ * which is why it is also what the Active jobs footnote counts.
+ */
+const JOB_NUDGE_DAYS = 3;
+const JOB_STALE_DAYS = 7;
 
 /** Shared shell for every list row on this page: identity left, facts right. */
 const ROW =
@@ -111,51 +143,35 @@ function AllClear({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * One row for every section that has nothing to report.
+ * How long an open job has been open.
  *
- * Each quiet section used to cost a heading, an icon, a "see more" link and a
- * sentence — about 110px to say an absence. On a slow day four of them stacked
- * took most of a phone screen to tell the owner that nothing had happened,
- * pushing the sections that *did* have something below the fold.
+ * Three tiers, because two would either nag about this morning's work or say
+ * nothing until a job is a fortnight old. Under three days is normal and reads
+ * as plain "Open"; that tier exists so the right-hand column never collapses
+ * and the rows keep one height.
  *
- * They collapse into this instead, and it sits after the sections that do have
- * content, so what needs attention is always above what does not. The
- * shortcuts stay: each quiet section is still one tap away, as a chip.
+ * The day count is in the badge text, so the tier is never carried by colour
+ * alone — and the visually-hidden phrasing spells it out for a reader who gets
+ * the badge without the list heading around it.
  */
-function QuietSections({ items }: { items: { label: string; href: string }[] }) {
-  if (!items.length) return null;
-  return (
-    <section aria-label="Nothing to report">
-      <div className="rounded-[var(--r-tile)] border border-[var(--hairline)] bg-[var(--surface)] px-3.5 py-3">
-        <p className="flex items-center gap-2.5 text-sm font-bold text-[var(--ink)]">
-          <span
-            aria-hidden="true"
-            className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[var(--sage)] text-[var(--forest)]"
-          >
-            <Check size={14} strokeWidth={3} />
-          </span>
-          All clear
-        </p>
-        <ul className="mt-2 flex flex-wrap gap-2">
-          {items.map((q) => (
-            <li key={q.href}>
-              <Link
-                href={q.href}
-                className={cn(
-                  "inline-flex min-h-11 items-center rounded-full border border-[var(--hairline)] px-3.5",
-                  "bg-[var(--surface-bright)] text-xs font-bold text-[var(--ink-muted)]",
-                  "transition-colors duration-150 ease-out",
-                  "hover:border-[var(--hairline-strong)] hover:text-[var(--ink)]",
-                )}
-              >
-                {q.label}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </section>
-  );
+function JobAge({ days }: { days: number }) {
+  if (days >= JOB_STALE_DAYS) {
+    return (
+      <Badge color="red" dot>
+        {days} days open
+        <span className="sr-only"> — needs attention</span>
+      </Badge>
+    );
+  }
+  if (days >= JOB_NUDGE_DAYS) {
+    return (
+      <Badge color="amber" dot>
+        {days} days
+        <span className="sr-only"> open</span>
+      </Badge>
+    );
+  }
+  return <Badge color="slate">Open</Badge>;
 }
 
 /**
@@ -220,8 +236,15 @@ export default function DashboardPage() {
     error: outstandingError,
     refetch: refetchOutstanding,
   } = useQuery({
-    queryKey: ["report", "outstanding"],
-    queryFn: () => api<any[]>("/api/reports/outstanding"),
+    // Five, not everyone. Unbounded, this section rendered one full-height row
+    // per debtor — forty-five of them on a real book, longer than the rest of
+    // the page put together. Its job is to name the biggest few and hand off
+    // to /customers, which the header link already does.
+    queryKey: ["report", "outstanding", OUTSTANDING_PREVIEW],
+    queryFn: () =>
+      api<any[]>("/api/reports/outstanding", {
+        params: { limit: String(OUTSTANDING_PREVIEW) },
+      }),
   });
 
   const summary = data?.summary;
@@ -317,12 +340,23 @@ export default function DashboardPage() {
         {/* Row one is the day's two money questions: what was billed, and what
             actually came into the till. They lead the grid on height — the
             four behind them are read when you go looking. */}
+        {/* The footnote used to read "N open · N closed", both of which are
+            already tiles on this same screen — a line of type restating what
+            was beside it. Margin is a second figure, which is what a footnote
+            here is for. It is materials margin: what today billed, less what
+            the parts consumed cost out of inventory. Labour carries no cost
+            side in this schema, so this is not margin after wages, and the
+            note says "after parts" rather than implying otherwise. */}
         <StatTile
           tone="forest"
           className={HERO_TILE}
           label="Billed today"
           value={currencyFit(summary?.todayBilled, HERO_FIT)}
-          footnote={`${summary?.activeJobs ?? 0} open · ${summary?.completedToday ?? 0} closed`}
+          footnote={
+            Number(summary?.todayBilled ?? 0) > 0
+              ? `${pct(summary?.profitToday, summary?.todayBilled)} after parts`
+              : `${summary?.activeJobs ?? 0} open · ${summary?.completedToday ?? 0} closed`
+          }
           icon={<IndianRupee size={18} />}
         />
         <StatTile
@@ -347,37 +381,99 @@ export default function DashboardPage() {
           tone="bright"
           label="Active jobs"
           value={String(summary?.activeJobs ?? 0)}
+          footnote={
+            Number(summary?.staleJobs ?? 0) > 0
+              ? `${summary?.staleJobs} over a week`
+              : undefined
+          }
           icon={<Wrench size={15} />}
         />
+        {/* "Low shop stock" was a lie by omission: the count behind it only
+            ever looked at the shop floor, while the page it links to, and the
+            badge in the nav, both count either location. Same question, three
+            different numbers. The count is now the whole of it and the
+            footnote says which side is short. */}
         <StatTile
           size="sm"
           tone="bright"
-          label="Low shop stock"
+          label="Low stock"
           value={String(summary?.lowStockCount ?? 0)}
+          footnote={
+            Number(summary?.lowStockCount ?? 0) > 0
+              ? `${summary?.lowShopCount ?? 0} shop · ${summary?.lowWarehouseCount ?? 0} store`
+              : undefined
+          }
           icon={<PackageX size={15} />}
         />
 
-        {/* Row three is the shelves. Kept, against the advice to cut them: in
-            a two-location workshop "have I got one, and is it here or at the
-            warehouse" is a counter question, not a reporting one. */}
-        <StatTile
-          size="sm"
-          tone="bright"
-          label="Warehouse stock"
-          value={units(summary?.warehouseUnits)}
-          unit="units"
-          footnote={`${currency(summary?.warehouseStockValue)} at cost`}
-          icon={<Warehouse size={15} />}
-        />
-        <StatTile
-          size="sm"
-          tone="bright"
-          label="Shop stock"
-          value={units(summary?.shopUnits)}
-          unit="units"
-          footnote={`${currency(summary?.shopStockValue)} at cost`}
-          icon={<Store size={15} />}
-        />
+        {/* Row three is the shelves — one tile, not two.
+
+            Split across a pair, the one figure nobody had was the total: the
+            owner was adding two lakh-scale numbers in their head to answer
+            "how much is sitting on my shelves". Full width also buys the room
+            to print those figures exactly, where a half-width tile had to hand
+            them to `currencyFit` and get "₹1.64Cr" back.
+
+            Value leads and units follow, inverting the old pair. Combined,
+            this is a money question — how much capital is on the shelves —
+            and the unit counts are the supporting detail.
+
+            Shop first, here and in the rows. This pair used to lead with
+            Warehouse, so the dashboard and the inventory page put the two
+            locations in opposite columns — which is exactly how someone reads
+            the wrong number off the wrong side. */}
+        <Tile tone="bright" className="col-span-2 p-4">
+          <div className="flex items-start justify-between gap-2">
+            <span className="tile-label text-[var(--ink-label)]">Stock on hand</span>
+            <span className="shrink-0 text-[var(--ink)] opacity-45">
+              <Boxes size={15} />
+            </span>
+          </div>
+
+          <div className="mt-2 flex items-baseline gap-1.5">
+            <span className="numeral truncate text-[clamp(1.5rem,6vw,2rem)]">
+              {currencyFit(summary?.stockValue, WIDE_FIT)}
+            </span>
+            <span className="text-[11px] font-bold text-[var(--ink-label)]">at cost</span>
+          </div>
+          <p className="mt-0.5 text-[11px] font-semibold leading-tight text-[var(--ink-label)]">
+            {units(summary?.stockUnits)} units across both locations
+          </p>
+
+          {/* Share of value, not of units — cheap bulk stock in the back room
+              pulls those two apart, so the caption says which one this is. */}
+          <div className="mt-3 space-y-2">
+            {[
+              { label: "Shop", icon: Store, value: Number(summary?.shopStockValue ?? 0), qty: summary?.shopUnits },
+              { label: "Warehouse", icon: Warehouse, value: Number(summary?.warehouseStockValue ?? 0), qty: summary?.warehouseUnits },
+            ].map((row) => (
+              <div key={row.label}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="flex min-w-0 items-center gap-1.5 text-xs font-bold text-[var(--ink)]">
+                    <row.icon size={12} className="shrink-0 opacity-45" />
+                    <span className="truncate">{row.label}</span>
+                  </span>
+                  <span className="shrink-0 text-xs font-semibold text-[var(--ink-muted)]">
+                    <span className="tabular font-extrabold text-[var(--ink)]">
+                      {currency(row.value)}
+                    </span>
+                    <span className="ml-1.5 tabular">
+                      {pct(row.value, summary?.stockValue)}
+                    </span>
+                  </span>
+                </div>
+                <ShareBar
+                  value={row.value}
+                  total={Number(summary?.stockValue ?? 0)}
+                  className="mt-1"
+                />
+                <span className="sr-only">
+                  {units(row.qty)} units, {pct(row.value, summary?.stockValue)} of stock by value
+                </span>
+              </div>
+            ))}
+          </div>
+        </Tile>
       </BentoGrid>
       )}
 
@@ -468,10 +564,13 @@ export default function DashboardPage() {
                       <p className="truncate text-xs text-[var(--ink-label)]">{job.complaint}</p>
                     )}
                   </div>
+                  {/* Every row on a list called "Active jobs" is open, so a
+                      badge saying "Open" carried no fact. Age does — and now
+                      that the list is sorted oldest-first, the rows that most
+                      need a flag are the ones at the top. The day count is in
+                      the text, never colour alone. */}
                   <div className="shrink-0">
-                    <Badge color="amber" dot>
-                      Open
-                    </Badge>
+                    <JobAge days={Number(job.ageDays ?? 0)} />
                   </div>
                 </Link>
               );
@@ -480,7 +579,11 @@ export default function DashboardPage() {
         )}
       </section>
 
-      {/* ── Low shop stock ───────────────────────────────────────────── */}
+      {/* ── Low shop stock ───────────────────────────────────────────────
+          The tile above counts both locations; these rows deliberately do not.
+          A shop shortage stops a job today, a warehouse shortage is a re-order
+          for this week, and interleaving the two buries the urgent ones. The
+          warehouse side gets a count and a link at the foot instead. */}
       <section>
         <SectionHeader
           title="Low shop stock"
@@ -494,7 +597,11 @@ export default function DashboardPage() {
             ))}
           </div>
         ) : !data?.lowStock?.length ? (
-          <AllClear>Every part is above its minimum shop level.</AllClear>
+          <AllClear>
+            {summary?.warehouseOnlyCount
+              ? "The shop floor is stocked — only the warehouse is short."
+              : "Every part is above its minimum."}
+          </AllClear>
         ) : (
           <div className="space-y-2.5">
             {data.lowStock.slice(0, 6).map((p: any) => (
@@ -505,16 +612,37 @@ export default function DashboardPage() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-extrabold text-[var(--ink)]">{p.name}</p>
                   <p className="truncate text-xs font-semibold text-[var(--ink-muted)]">
-                    Minimum {p.minimumShopStock} · Warehouse {p.warehouseStock}
+                    {p.shopStock} of {p.minimumShopStock} in shop
+                    {p.warehouseStock > 0 && ` · ${p.warehouseStock} in warehouse`}
                   </p>
+                  <span className="mt-1.5 block max-w-[10rem]">
+                    <StockBar value={p.shopStock} min={p.minimumShopStock} />
+                  </span>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
                   <span className="numeral text-lg text-[var(--ink)]">{p.shopStock}</span>
-                  <span className="tile-label text-[var(--ink-label)]">In shop</span>
+                  <span className="tile-label text-[var(--ink-label)]">Shop</span>
                 </div>
               </Link>
             ))}
           </div>
+        )}
+        {!isLoading && Number(summary?.warehouseOnlyCount ?? 0) > 0 && (
+          <Link
+            href="/inventory/low-stock"
+            className={cn(
+              "mt-2.5 flex min-h-11 items-center justify-between gap-2 rounded-[var(--r-tile)]",
+              "border border-[var(--hairline)] bg-[var(--surface)] px-3.5",
+              "text-xs font-bold text-[var(--ink-muted)]",
+              "transition-colors duration-150 ease-out",
+              "hover:border-[var(--hairline-strong)] hover:text-[var(--ink)]",
+            )}
+          >
+            <span>
+              {summary?.warehouseOnlyCount} more short in the warehouse only
+            </span>
+            <ArrowRight size={14} className="shrink-0" />
+          </Link>
         )}
       </section>
 

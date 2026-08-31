@@ -230,6 +230,20 @@ export const stockMovements = pgTable("stock_movements", {
   locationId: uuid("location_id").notNull().references(() => inventoryLocations.id),
   movementType: movementTypeEnum("movement_type").notNull(),
   quantity: integer("quantity").notNull(),
+  /**
+   * What one unit was worth when this row was written.
+   *
+   * Cost figures used to join `parts.purchase_price` at read time, so editing
+   * a part's price retroactively rewrote the cost of every job that had ever
+   * consumed it — last quarter's margin moved because someone corrected a
+   * price today. Snapshotting at write time is what stops that.
+   *
+   * This is replacement cost at the moment of the movement, NOT FIFO: if a
+   * part was bought at ₹200 and the purchase price is later raised to ₹250, a
+   * later JOB_USAGE of the old units is valued at ₹250. Costing the specific
+   * units consumed would need cost layers this schema does not carry.
+   */
+  unitCost: numeric("unit_cost", { precision: 10, scale: 2 }).notNull().default("0"),
   referenceType: varchar("reference_type", { length: 50 }),
   referenceId: uuid("reference_id"),
   notes: text("notes"),
@@ -238,6 +252,10 @@ export const stockMovements = pgTable("stock_movements", {
   index("idx_stock_movements_part_id").on(table.partId),
   index("idx_stock_movements_location_id").on(table.locationId),
   index("idx_stock_movements_created_at").on(table.createdAt),
+  // Every consumption figure in the app filters on movement_type AND a date
+  // window; the created_at index alone cannot discriminate the type, so each
+  // one scanned rows it would immediately discard.
+  index("idx_stock_movements_type_created_at").on(table.movementType, table.createdAt),
 ]);
 
 // ─── Stock Transfers ─────────────────────────────────────────────────
@@ -276,6 +294,8 @@ export const jobs = pgTable("jobs", {
   index("idx_jobs_status").on(table.status),
   index("idx_jobs_customer_id").on(table.customerId),
   index("idx_jobs_vehicle_id").on(table.vehicleId),
+  // Jobs-completed counts and the turnaround average both window on this.
+  index("idx_jobs_completed_at").on(table.completedAt),
 ]);
 
 // ─── Job Labour ──────────────────────────────────────────────────────
@@ -354,6 +374,8 @@ export const payments = pgTable("payments", {
 }, (table) => [
   index("idx_payments_customer_id").on(table.customerId),
   index("idx_payments_invoice_id").on(table.invoiceId),
+  // Collected-in-period, and the payment-method breakdown beside it.
+  index("idx_payments_created_at").on(table.createdAt),
 ]);
 
 // ─── Settings ────────────────────────────────────────────────────────

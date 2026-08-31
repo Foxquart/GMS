@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -45,6 +45,7 @@ import { SpotTools } from "@/components/illustrations";
 import { AnimatedDropdown } from "@/components/animated-dropdown";
 import { currency, formatDateTime } from "@/lib/format";
 import { REFERENCE_QUERY } from "@/lib/query-keys";
+import { useGoBack } from "@/hooks/use-go-back";
 import { cn } from "@/lib/cn";
 
 const movementLabel = (m: string) =>
@@ -69,7 +70,7 @@ const movementColor = (m: string) =>
 
 export default function PartDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
+  const goBack = useGoBack("/inventory");
   const qc = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
   const [eName, setEName] = useState("");
@@ -341,7 +342,7 @@ export default function PartDetailPage() {
     return (
       <div className="mx-auto max-w-2xl space-y-5">
         <div className="flex items-center gap-3">
-          <CircleButton onDark={false} onClick={() => router.back()} aria-label="Back">
+          <CircleButton onDark={false} onClick={goBack} aria-label="Back">
             <ArrowLeft size={18} />
           </CircleButton>
           <h1 className="text-xl font-extrabold text-[var(--ink)]">Part</h1>
@@ -395,7 +396,10 @@ export default function PartDetailPage() {
 
   const shopTone: Tone = shopStock <= 0 ? "terracotta" : shopStock < minShop ? "ochre" : "sage";
   const warehouseTone: Tone =
-    warehouseStock <= 0 ? "terracotta" : warehouseStock < minWarehouse ? "ochre" : "cream";
+    // Sage when healthy, same as the shop. It used to be cream, so a full
+    // warehouse and a merely-adequate one looked identical while the shop got
+    // a positive green — two visual grammars for the same "this is fine".
+    warehouseStock <= 0 ? "terracotta" : warehouseStock < minWarehouse ? "ochre" : "sage";
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
@@ -405,7 +409,7 @@ export default function PartDetailPage() {
         title={part.name}
         subtitle={`${part.partNumber || "No part number"} · ${part.brand || "No brand"}`}
         leading={
-          <CircleButton onClick={() => router.back()} aria-label="Back">
+          <CircleButton onClick={goBack} aria-label="Back">
             <ArrowLeft size={18} />
           </CircleButton>
         }
@@ -471,7 +475,7 @@ export default function PartDetailPage() {
         <BentoGrid>
           <StatTile
             tone={shopTone}
-            label="Shop floor"
+            label="Shop"
             value={shopStock}
             unit={unit}
             footnote={`Minimum ${minShop}`}
@@ -674,7 +678,7 @@ export default function PartDetailPage() {
           <Field label="Location">
             <Select value={location} onChange={(e) => setLocation(e.target.value as any)}>
               <option value="WAREHOUSE">Warehouse</option>
-              <option value="SHOP">Shop floor</option>
+              <option value="SHOP">Shop</option>
             </Select>
           </Field>
           <Field label={`Quantity (${unit})`}>
@@ -731,7 +735,7 @@ export default function PartDetailPage() {
                 setNewQty(String(next === "SHOP" ? shopStock : warehouseStock));
               }}
             >
-              <option value="SHOP">Shop floor</option>
+              <option value="SHOP">Shop</option>
               <option value="WAREHOUSE">Warehouse</option>
             </Select>
           </Field>
@@ -780,7 +784,7 @@ export default function PartDetailPage() {
             </div>
             <ArrowRight size={18} className="shrink-0 text-[var(--ink-label)]" />
             <div className="text-right">
-              <p className="tile-label text-[var(--ink-label)]">Shop floor</p>
+              <p className="tile-label text-[var(--ink-label)]">Shop</p>
               <p className="numeral mt-1 text-xl text-[var(--ink)]">{shopStock}</p>
             </div>
           </div>

@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeftRight, Package, Store, Warehouse } from "lucide-react";
 import { api, errorMessage, errorReference } from "@/lib/api";
@@ -20,6 +19,7 @@ import {
 } from "@/components/ui";
 import { SpotStamp } from "@/components/illustrations";
 import { currency } from "@/lib/format";
+import { useGoBack } from "@/hooks/use-go-back";
 import { cn } from "@/lib/cn";
 
 type LowStockRow = {
@@ -60,7 +60,7 @@ function usageLine(row: LowStockRow) {
 }
 
 export default function LowStockPage() {
-  const router = useRouter();
+  const goBack = useGoBack("/inventory");
 
   const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ["inventory", "low-stock"],
@@ -81,7 +81,7 @@ export default function LowStockPage() {
           the two count tiles are read once and then scroll away. */}
       <StickyControls>
         <div className="flex items-center gap-3">
-          <CircleButton onDark={false} onClick={() => router.back()} aria-label="Back">
+          <CircleButton onDark={false} onClick={goBack} aria-label="Back">
             <span aria-hidden="true">←</span>
           </CircleButton>
           <div className="min-w-0">
@@ -117,7 +117,7 @@ export default function LowStockPage() {
             footnote={
               warehouseOnly.length
                 ? `${warehouseOnly.length} in the warehouse only`
-                : "Shop floor or warehouse"
+                : "Shop or warehouse"
             }
             tone={low.length ? "ochre" : "cream"}
             icon={<AlertTriangle size={16} />}
@@ -227,11 +227,23 @@ export default function LowStockPage() {
                             </Badge>
                           )
                         )}
-                        {r.warehouseShort && (
-                          <Badge color="amber">
+                        {/* The warehouse used to top out at amber however
+                            empty it was, so "nothing left in the back" looked
+                            no worse than "getting low" — while the shop got a
+                            red for the same state. Both locations now use the
+                            same two steps. */}
+                        {r.warehouseStock <= 0 ? (
+                          <Badge color="red">
                             <Warehouse size={10} />
-                            Warehouse {r.warehouseStock}/{r.minimumWarehouseStock}
+                            Warehouse empty
                           </Badge>
+                        ) : (
+                          r.warehouseShort && (
+                            <Badge color="amber">
+                              <Warehouse size={10} />
+                              Warehouse {r.warehouseStock}/{r.minimumWarehouseStock}
+                            </Badge>
+                          )
                         )}
                       </div>
                       {/* What the last month actually got through. "3 left" is
