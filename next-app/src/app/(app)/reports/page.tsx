@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -31,6 +30,7 @@ import {
   StickyControls,
   Tile,
 } from "@/components/ui";
+import { useGoBack } from "@/hooks/use-go-back";
 import { cn } from "@/lib/cn";
 
 const PERIODS = [
@@ -60,23 +60,10 @@ const PARTS_PREVIEW = 10;
  * fits on a screen.
  */
 export default function ReportsPage() {
-  const router = useRouter();
+  const goBack = useGoBack("/dashboard");
   const [period, setPeriod] = useState<PeriodId>("daily");
   const [partsSort, setPartsSort] = useState<"quantity" | "charged">("quantity");
   const [showAllParts, setShowAllParts] = useState(false);
-
-  /**
-   * Back to where you came from — the dashboard link, the menu, wherever.
-   *
-   * `router.back()` alone would walk out of the app when this page *is* the
-   * first entry, which is the normal case for a bookmark, a refresh or the
-   * installed PWA reopening here. `history.length <= 1` is that case, and the
-   * dashboard is the honest destination for it.
-   */
-  const goBack = () => {
-    if (typeof window !== "undefined" && window.history.length > 1) router.back();
-    else router.push("/dashboard");
-  };
 
   const { data: report, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["report", period],

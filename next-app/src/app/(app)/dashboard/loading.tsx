@@ -45,7 +45,6 @@ export default function DashboardLoading() {
         { rows: 3, height: "h-[4.75rem]" },
         { rows: 3, height: "h-[4.75rem]" },
         { rows: 3, height: "h-[3.25rem]" },
-        { rows: 2, height: "h-[4.75rem]" },
       ].map((section, i) => (
         <div key={i} className="space-y-2.5">
           <Skeleton className="h-5 w-36 rounded-full" />
@@ -54,6 +53,12 @@ export default function DashboardLoading() {
           ))}
         </div>
       ))}
+
+      {/* Recent invoices is one bordered list rather than separate cards. */}
+      <div className="space-y-2.5">
+        <Skeleton className="h-5 w-36 rounded-full" />
+        <Skeleton className="h-[11rem] rounded-[var(--r-card)]" />
+      </div>
     </div>
   );
 }

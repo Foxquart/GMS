@@ -30,18 +30,22 @@ describe("dashboard stock analytics", () => {
     expect(summary.stockPurchased).toBe(4 * 250);
   });
 
-  it("counts every low part, not just the ten the dashboard lists", async () => {
-    // The lowStock rows are capped at ten because that is all the page shows.
-    // The headline count must not inherit that cap — an owner re-ordering
-    // against "10 low" when twelve parts are short would under-buy.
+  it("counts every low part, not just the few the dashboard lists", async () => {
+    // The listed rows are capped because the dashboard is a summary. The
+    // headline count must not inherit that cap — an owner re-ordering against
+    // "4 low" when twelve parts are short would badly under-buy.
     for (let i = 0; i < 12; i++) {
       await createPart({ name: `Short part ${i}`, minimumShopStock: 5 });
     }
 
     const { summary, lowStock } = await getDashboard();
 
-    expect(lowStock).toHaveLength(10);
     expect(summary.lowStockCount).toBe(12);
+    // Asserted as a relationship, not a magic number: the cap is a product
+    // decision that may move again, and a test pinning it to one integer
+    // fails on that change without anything being broken.
+    expect(lowStock.length).toBeLessThan(summary.lowStockCount);
+    expect(lowStock.length).toBeGreaterThan(0);
   });
 
   it("counts low stock the same way the low-stock page does", async () => {

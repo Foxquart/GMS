@@ -220,7 +220,11 @@ export const StatTile = ({
       {...props}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className={cn("tile-label", sm && "text-[9px] tracking-[0.1em]", TONE_LABEL[tone])}>
+        {/* 10px is the floor for anything carrying meaning. This was 9px on
+            the small tiles, which is where a caps label stops being readable
+            at arm's length on a workbench — and every label on this grid names
+            the figure under it, so none of them are decoration. */}
+        <span className={cn("tile-label", sm && "text-[10px] tracking-[0.1em]", TONE_LABEL[tone])}>
           {label}
         </span>
         {icon && <span className={cn("shrink-0 opacity-45", TONE_INK[tone])}>{icon}</span>}

@@ -19,6 +19,16 @@ import { getLastTransfer, getLowStock } from "./inventory.service";
 
 export type ReportPeriod = "daily" | "weekly" | "monthly" | "yearly";
 
+/**
+ * How many rows each dashboard feed carries.
+ *
+ * The dashboard is a set of "here is the top of the pile, go and see the
+ * rest" summaries, not a set of lists. Every section pairs this with a total
+ * and a link out, so the cap never hides the size of the problem — it only
+ * declines to render it.
+ */
+const DASHBOARD_LIST_ROWS = 4;
+
 function periodStart(period: ReportPeriod) {
   const now = new Date();
   const start = new Date(now);
@@ -441,12 +451,26 @@ export async function getDashboard() {
       .select({ total: sql<string>`coalesce(sum(${payments.amount}), 0)` })
       .from(payments)
       .where(gte(payments.createdAt, day)),
+    // The amount owed and how many people owe it, off one scan. The list
+    // beneath it names only the biggest few, so without the count the section
+    // could not say what it was the top few *of*.
     db
-      .select({ total: sql<string>`coalesce(sum(${invoices.dueAmount}), 0)` })
+      .select({
+        total: sql<string>`coalesce(sum(${invoices.dueAmount}), 0)`,
+        customers: sql<number>`count(distinct ${invoices.customerId}) filter (where ${invoices.dueAmount} > 0)::int`,
+      })
       .from(invoices)
       .where(inArray(invoices.status, [...OUTSTANDING_INVOICE_STATUSES])),
+    // Open jobs, and how many of those have been open a week.
+    //
+    // The stale count used to be derived in JS from the ten rows fetched for
+    // the list, so it silently saturated at ten — "10 over a week" on a board
+    // of thirty-three was the limit talking, not the backlog.
     db
-      .select({ total: sql<number>`count(*)` })
+      .select({
+        total: sql<number>`count(*)::int`,
+        stale: sql<number>`count(*) filter (where ${jobs.createdAt} < now() - interval '7 days')::int`,
+      })
       .from(jobs)
       .where(eq(jobs.status, "OPEN")),
     db.select({ total: sql<number>`count(*)` }).from(jobs).where(completedSince(day)),
@@ -482,7 +506,11 @@ export async function getDashboard() {
       // had been sitting for weeks — precisely the rows worth surfacing. A job
       // opened this morning is still in their head; one open nine days is not.
       .orderBy(asc(jobs.createdAt))
-      .limit(10),
+      // Four, not ten. Ten rows of a thirty-three job board is the jobs page
+      // embedded in the dashboard: long enough to scroll past, short enough to
+      // be incomplete, so it served neither purpose. Four names the ones that
+      // have waited longest and hands off to /jobs for the rest.
+      .limit(DASHBOARD_LIST_ROWS),
     db
       .select({
         id: invoices.id,
@@ -497,7 +525,7 @@ export async function getDashboard() {
       .innerJoin(customersTable, eq(invoices.customerId, customersTable.id))
       .where(ne(invoices.status, "CANCELLED"))
       .orderBy(desc(invoices.createdAt))
-      .limit(5),
+      .limit(DASHBOARD_LIST_ROWS),
     // Two questions off one scan of the movement ledger.
     //
     // stockPurchased: what the shelves cost to fill — every unit ever booked
@@ -577,11 +605,12 @@ export async function getDashboard() {
       todayBilled: Number(todayBilled?.total ?? 0),
       todayCollected: Number(todayCollected?.total ?? 0),
       outstanding: Number(outstanding?.total ?? 0),
+      outstandingCustomers: Number(outstanding?.customers ?? 0),
       activeJobs: Number(activeJobs?.total ?? 0),
       completedToday: Number(completedToday?.total ?? 0),
-      // Open jobs that have been open a week. The count the tile footnote
-      // reports, so the owner sees the backlog without reading ten rows.
-      staleJobs: activeJobRows.filter((j: any) => Number(j.ageDays ?? 0) >= 7).length,
+      // Open jobs that have been open a week — counted across the whole board,
+      // not across the handful of rows the list happens to carry.
+      staleJobs: Number(activeJobs?.stale ?? 0),
       // "Low" now means under a minimum at EITHER location, matching
       // /inventory/low-stock and the nav badge. The split is carried alongside
       // so the tile can say which side is short rather than leaving a single
@@ -616,7 +645,7 @@ export async function getDashboard() {
     // The listed rows stay shop-short only. A shop shortage stops a job today;
     // a warehouse shortage is a re-order for this week, and interleaving the
     // two buries the urgent ones.
-    lowStock: lowStockRows.filter((r: any) => r.shopShort).slice(0, 10),
+    lowStock: lowStockRows.filter((r: any) => r.shopShort).slice(0, DASHBOARD_LIST_ROWS),
     activeJobs: activeJobRows,
     recentInvoices,
     lastTransfer,

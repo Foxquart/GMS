@@ -8,6 +8,7 @@ import {
   Wrench,
   PackageX,
   Users,
+  ArrowLeftRight,
   ArrowRight,
   ClipboardList,
   Check,
@@ -20,8 +21,10 @@ import {
   currency,
   currencyFit,
   formatDate,
+  formatDateCompact,
   invoiceStatusLabel,
   pct,
+  shortRef,
 } from "@/lib/format";
 import {
   Badge,
@@ -33,7 +36,7 @@ import {
   StatTile,
   Tile,
 } from "@/components/ui";
-import { SpotClipboard, SpotOilCan, VEHICLE_SPOT } from "@/components/illustrations";
+import { SpotOilCan, VEHICLE_SPOT } from "@/components/illustrations";
 import { cn } from "@/lib/cn";
 
 /** Plain grouped count — units on a shelf are never fractional. */
@@ -75,8 +78,25 @@ const HERO_FIT = { em: 3.8 };
  */
 const WIDE_FIT = { em: 7.6 };
 
-/** How many debtors the dashboard names before handing off to /customers. */
-const OUTSTANDING_PREVIEW = 5;
+/**
+ * Budget for the two split rows inside that tile.
+ *
+ * Deliberately tight. These are supporting figures beside a total, sharing a
+ * line with a label and a percentage, so the short form is the right answer
+ * here even though the headline above them can afford to be exact — "₹57.9L"
+ * next to "Shop" says everything the row is for, where an eight-digit figure
+ * with paise crowds the label it belongs to.
+ */
+const SPLIT_FIT = { em: 3.2 };
+
+/**
+ * How many debtors the dashboard names before handing off to /customers.
+ *
+ * Four, matching every other feed on the page — the caps are one decision, not
+ * five, so the sections read as a set of summaries rather than lists of
+ * arbitrary length.
+ */
+const OUTSTANDING_PREVIEW = 4;
 
 /**
  * When an open job stops being "in progress" and starts being "forgotten".
@@ -143,6 +163,36 @@ function AllClear({ children }: { children: React.ReactNode }) {
 }
 
 /**
+ * "and N more of these" — the foot of every capped list on this page.
+ *
+ * The cap is what keeps the dashboard a dashboard, but a truncated list that
+ * does not say it is truncated is worse than a long one: the owner reads four
+ * debtors and thinks that is everyone. This states the remainder and hands off
+ * to the page that holds it. Renders nothing when nothing was hidden.
+ */
+function MoreLink({ count, href, noun }: { count: number; href: string; noun: string }) {
+  if (count <= 0) return null;
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "flex min-h-11 items-center justify-between gap-2 rounded-[var(--r-tile)]",
+        "border border-[var(--hairline)] bg-[var(--surface)] px-3.5",
+        "text-xs font-bold text-[var(--ink-muted)]",
+        "transition-colors duration-150 ease-out",
+        "hover:border-[var(--hairline-strong)] hover:text-[var(--ink)]",
+      )}
+    >
+      <span>
+        {count} more {noun}
+        {count === 1 ? "" : "s"}
+      </span>
+      <ArrowRight size={14} className="shrink-0" />
+    </Link>
+  );
+}
+
+/**
  * How long an open job has been open.
  *
  * Three tiers, because two would either nag about this morning's work or say
@@ -155,19 +205,21 @@ function AllClear({ children }: { children: React.ReactNode }) {
  * the badge without the list heading around it.
  */
 function JobAge({ days }: { days: number }) {
+  // "21d", not "21 days open": the section is called Active jobs, so "open"
+  // was the same word on every row, and the unit is unambiguous at a glance.
+  // The full phrasing stays for screen readers, which get the badge without
+  // the heading around it.
   if (days >= JOB_STALE_DAYS) {
     return (
       <Badge color="red" dot>
-        {days} days open
-        <span className="sr-only"> — needs attention</span>
+        {days}d<span className="sr-only"> open — needs attention</span>
       </Badge>
     );
   }
   if (days >= JOB_NUDGE_DAYS) {
     return (
       <Badge color="amber" dot>
-        {days} days
-        <span className="sr-only"> open</span>
+        {days}d<span className="sr-only"> open</span>
       </Badge>
     );
   }
@@ -352,8 +404,14 @@ export default function DashboardPage() {
           className={HERO_TILE}
           label="Billed today"
           value={currencyFit(summary?.todayBilled, HERO_FIT)}
+          // A margin is only worth stating when parts were actually consumed.
+          // On a labour-only day the cost side is zero, so the figure comes
+          // out at a triumphant "100% after parts" — arithmetically true, and
+          // read as a claim about the business rather than as "no parts left
+          // the shelf today". Below that threshold the tile says what the day
+          // did instead.
           footnote={
-            Number(summary?.todayBilled ?? 0) > 0
+            Number(summary?.todayBilled ?? 0) > 0 && Number(summary?.cogsToday ?? 0) > 0
               ? `${pct(summary?.profitToday, summary?.todayBilled)} after parts`
               : `${summary?.activeJobs ?? 0} open · ${summary?.completedToday ?? 0} closed`
           }
@@ -398,9 +456,14 @@ export default function DashboardPage() {
           tone="bright"
           label="Low stock"
           value={String(summary?.lowStockCount ?? 0)}
+          // The two halves must partition the headline, not overlap it. Naming
+          // the raw warehouse-short count here read as "29 shop · 24 store"
+          // under a total of 48 — a reader adds those and gets 53, because a
+          // part short in both places was counted twice. Pairing shop-short
+          // with warehouse-ONLY splits the same 48 in two.
           footnote={
             Number(summary?.lowStockCount ?? 0) > 0
-              ? `${summary?.lowShopCount ?? 0} shop · ${summary?.lowWarehouseCount ?? 0} store`
+              ? `${summary?.lowShopCount ?? 0} shop · ${summary?.warehouseOnlyCount ?? 0} warehouse`
               : undefined
           }
           icon={<PackageX size={15} />}
@@ -455,7 +518,7 @@ export default function DashboardPage() {
                   </span>
                   <span className="shrink-0 text-xs font-semibold text-[var(--ink-muted)]">
                     <span className="tabular font-extrabold text-[var(--ink)]">
-                      {currency(row.value)}
+                      {currencyFit(row.value, SPLIT_FIT)}
                     </span>
                     <span className="ml-1.5 tabular">
                       {pct(row.value, summary?.stockValue)}
@@ -501,6 +564,21 @@ export default function DashboardPage() {
           <AllClear>Everyone is settled up.</AllClear>
         ) : (
           <div className="space-y-2.5">
+            {/* The total leads, because it is the figure the owner came for.
+                Five names each carrying their own amount made them add it up
+                in their head; the names below are now the top of that total
+                rather than a substitute for it. */}
+            <div className="rounded-[var(--r-tile)] border border-[var(--terracotta)]/25 bg-[var(--terracotta)]/8 px-4 py-3">
+              <p className="numeral text-[clamp(1.5rem,6vw,2rem)] leading-none text-[var(--terracotta-hover)]">
+                {currencyFit(summary?.outstanding, WIDE_FIT)}
+              </p>
+              <p className="mt-1.5 text-xs font-bold text-[var(--ink-muted)]">
+                {summary?.outstandingCustomers ?? 0} customer
+                {summary?.outstandingCustomers === 1 ? "" : "s"}
+                <span className="sr-only"> owe this in total</span>
+              </p>
+            </div>
+
             {outstandingCustomers.map((c: any) => (
               <Link key={c.customerId} href={`/customers/${c.customerId}`} className={ROW}>
                 <span
@@ -525,6 +603,12 @@ export default function DashboardPage() {
                 </div>
               </Link>
             ))}
+
+            <MoreLink
+              count={(summary?.outstandingCustomers ?? 0) - outstandingCustomers.length}
+              href="/customers"
+              noun="customer"
+            />
           </div>
         )}
       </section>
@@ -575,6 +659,11 @@ export default function DashboardPage() {
                 </Link>
               );
             })}
+            <MoreLink
+              count={(summary?.activeJobs ?? 0) - data.activeJobs.length}
+              href="/jobs"
+              noun="active job"
+            />
           </div>
         )}
       </section>
@@ -604,27 +693,66 @@ export default function DashboardPage() {
           </AllClear>
         ) : (
           <div className="space-y-2.5">
-            {data.lowStock.slice(0, 6).map((p: any) => (
-              <Link key={p.id} href={`/inventory/parts/${p.id}`} className={ROW}>
-                <Plate tone="ochre">
-                  <SpotOilCan size={34} />
-                </Plate>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-extrabold text-[var(--ink)]">{p.name}</p>
-                  <p className="truncate text-xs font-semibold text-[var(--ink-muted)]">
-                    {p.shopStock} of {p.minimumShopStock} in shop
-                    {p.warehouseStock > 0 && ` · ${p.warehouseStock} in warehouse`}
-                  </p>
-                  <span className="mt-1.5 block max-w-[10rem]">
-                    <StockBar value={p.shopStock} min={p.minimumShopStock} />
-                  </span>
+            {data.lowStock.map((p: any) => {
+              // Short on the floor with stock in the back is a two-minute walk,
+              // not a purchase order. The row used to state that fact and leave
+              // the owner to go and find the transfer screen themselves.
+              const coverable = p.warehouseStock > 0;
+              return (
+                <div key={p.id} className={cn(ROW, "relative")}>
+                  {/* Stretched link: the whole card opens the part, while the
+                      Transfer control above it stays independently tappable.
+                      A button nested inside an anchor would be invalid, and
+                      splitting the row into two targets would lose the big
+                      one. */}
+                  <Link
+                    href={`/inventory/parts/${p.id}`}
+                    className="absolute inset-0 rounded-[var(--r-card)]"
+                  >
+                    <span className="sr-only">{p.name}</span>
+                  </Link>
+                  <Plate tone="ochre">
+                    <SpotOilCan size={34} />
+                  </Plate>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-extrabold text-[var(--ink)]">{p.name}</p>
+                    {/* "Shop 0/3 · Warehouse 53", not "0 of 3 in shop · 53
+                        in warehouse". Same four figures, half the words, and
+                        the location leads so the pair scans as a column. */}
+                    <p className="truncate text-xs font-semibold text-[var(--ink-muted)]">
+                      Shop {p.shopStock}/{p.minimumShopStock}
+                      {coverable && ` · Warehouse ${p.warehouseStock}`}
+                    </p>
+                    <span className="mt-1.5 block max-w-[10rem]">
+                      <StockBar value={p.shopStock} min={p.minimumShopStock} />
+                    </span>
+                  </div>
+                  {coverable ? (
+                    <Link
+                      href="/inventory/transfers"
+                      onClick={(e) => e.stopPropagation()}
+                      className={cn(
+                        "relative z-10 inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full",
+                        "border border-[var(--hairline)] bg-[var(--surface-bright)] px-3",
+                        "text-xs font-bold text-[var(--ink)]",
+                        "transition-colors duration-150 ease-out hover:border-[var(--hairline-strong)]",
+                      )}
+                    >
+                      <ArrowLeftRight size={13} aria-hidden="true" />
+                      Move
+                      <span className="sr-only"> {p.name} from the warehouse to the shop</span>
+                    </Link>
+                  ) : (
+                    // Nothing behind it either — this one has to be ordered,
+                    // and saying so is more use than repeating the zero.
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <span className="numeral text-lg text-[var(--ink)]">{p.shopStock}</span>
+                      <span className="tile-label text-[var(--ink-label)]">Order</span>
+                    </div>
+                  )}
                 </div>
-                <div className="flex shrink-0 flex-col items-end gap-1">
-                  <span className="numeral text-lg text-[var(--ink)]">{p.shopStock}</span>
-                  <span className="tile-label text-[var(--ink-label)]">Shop</span>
-                </div>
-              </Link>
-            ))}
+              );
+            })}
           </div>
         )}
         {!isLoading && Number(summary?.warehouseOnlyCount ?? 0) > 0 && (
@@ -699,12 +827,15 @@ export default function DashboardPage() {
               ))}
             </ul>
             {/* The count is across every part consumed, not just the rows
-                above, so it does not shrink when the list is trimmed. */}
+                above, so it does not shrink when the list is trimmed.
+                "6 used · 4 parts" rather than "6 parts used across 4 lines" —
+                "lines" was the database's word for it, not the workshop's. */}
             <p className="border-t border-[var(--hairline)] bg-[var(--surface)] px-3.5 py-2.5 text-xs font-bold text-[var(--ink-muted)]">
-              {partsUsage.totals.quantity} part
-              {partsUsage.totals.quantity === 1 ? "" : "s"} used across{" "}
-              {partsUsage.totals.distinctParts} line
-              {partsUsage.totals.distinctParts === 1 ? "" : "s"}
+              {partsUsage.totals.quantity} used
+              {partsUsage.totals.distinctParts !== partsUsage.totals.quantity &&
+                ` · ${partsUsage.totals.distinctParts} part${
+                  partsUsage.totals.distinctParts === 1 ? "" : "s"
+                }`}
             </p>
           </div>
         )}
@@ -718,43 +849,51 @@ export default function DashboardPage() {
           action={<SectionLink href="/invoices">All invoices</SectionLink>}
         />
         {isLoading ? (
-          <div className="space-y-2.5">
-            {Array.from({ length: 2 }).map((_, i) => (
-              <Skeleton key={i} className="h-[4.75rem]" />
-            ))}
-          </div>
+          <Skeleton className="h-[11rem] rounded-[var(--r-card)]" />
         ) : !data?.recentInvoices?.length ? (
           <AllClear>No invoices yet — one is raised when you complete a job.</AllClear>
         ) : (
-          <div className="space-y-2.5">
-            {data.recentInvoices.slice(0, 3).map((inv: any) => (
-              <Link key={inv.id} href={`/invoices/${inv.id}`} className={ROW}>
-                <Plate tone="sage">
-                  <SpotClipboard size={34} />
-                </Plate>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-extrabold text-[var(--ink)]">
-                    {inv.customerName}
-                  </p>
-                  <p className="truncate text-xs font-semibold text-[var(--ink-muted)]">
-                    {inv.invoiceNumber} · {formatDate(inv.createdAt)}
-                  </p>
-                </div>
-                <div className="flex shrink-0 flex-col items-end gap-1.5">
-                  <span className="tabular text-sm font-extrabold text-[var(--ink)]">
-                    {currency(inv.total)}
-                  </span>
-                  <Badge
-                    color={
-                      inv.status === "PAID" ? "green" : inv.status === "PARTIALLY_PAID" ? "amber" : "slate"
-                    }
-                    dot
+          // A record of what already happened, not something to act on — so
+          // rows in one bordered list rather than four illustrated cards. The
+          // illustrated card is the right weight for a section the owner has
+          // to *do* something about, and spending it here made a receipt log
+          // look as urgent as an unpaid debt.
+          <div className="overflow-hidden rounded-[var(--r-tile)] border border-[var(--hairline)] bg-[var(--surface-bright)]">
+            <ul className="divide-y divide-[var(--hairline)]">
+              {data.recentInvoices.map((inv: any) => (
+                <li key={inv.id}>
+                  <Link
+                    href={`/invoices/${inv.id}`}
+                    className="flex min-h-[3.25rem] items-center gap-3 px-3.5 py-2.5 transition-colors duration-150 ease-out hover:bg-[var(--surface)]"
                   >
-                    {invoiceStatusLabel(inv.status)}
-                  </Badge>
-                </div>
-              </Link>
-            ))}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-bold text-[var(--ink)]">
+                        {inv.customerName}
+                      </p>
+                      <p className="truncate text-[11px] font-semibold text-[var(--ink-label)]">
+                        {shortRef(inv.invoiceNumber)} · {formatDateCompact(inv.createdAt)}
+                      </p>
+                    </div>
+                    <span className="tabular shrink-0 text-sm font-extrabold text-[var(--ink)]">
+                      {currency(inv.total)}
+                    </span>
+                    <Badge
+                      className="shrink-0"
+                      color={
+                        inv.status === "PAID"
+                          ? "green"
+                          : inv.status === "PARTIALLY_PAID"
+                            ? "amber"
+                            : "slate"
+                      }
+                      dot
+                    >
+                      {invoiceStatusLabel(inv.status)}
+                    </Badge>
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </section>

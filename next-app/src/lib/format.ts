@@ -134,6 +134,26 @@ export const formatDate = (d: string | Date | null | undefined) => {
   return new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 };
 
+/**
+ * A date in a list of recent things: "01 Sep", but "01 Sep 2025" once the year
+ * stops being obvious.
+ *
+ * The year is the least useful glyph group in "01 Sep 2026" when everything on
+ * screen was raised this week — but dropping it unconditionally would make a
+ * two-year-old invoice read as this year's, so it comes back the moment it
+ * carries information.
+ */
+export const formatDateCompact = (d: string | Date | null | undefined) => {
+  if (!d) return "—";
+  const date = new Date(d);
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+};
+
 export const formatDateTime = (d: string | Date | null | undefined) => {
   if (!d) return "—";
   return new Date(d).toLocaleString("en-IN", {
