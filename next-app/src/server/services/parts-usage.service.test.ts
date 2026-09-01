@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
+import { resolvePreset } from "@/lib/date-range";
 import { resetBusinessData, seedCustomerAndPart } from "@/test/helpers";
 import { createJob, saveJobPart } from "@/server/services/job.service";
 import { completeJob } from "@/server/services/invoice.service";
@@ -27,7 +28,7 @@ describe("parts usage", () => {
     await useOnCompletedJob(customer.id, part.id, 2);
     await useOnCompletedJob(customer.id, part.id, 1);
 
-    const usage = await getPartsUsage("daily");
+    const usage = await getPartsUsage(resolvePreset("today"));
 
     expect(usage.rows).toHaveLength(1);
     expect(usage.rows[0].partId).toBe(part.id);
@@ -44,7 +45,7 @@ describe("parts usage", () => {
     await useOnCompletedJob(customer.id, part.id, 2);
     await useOnCompletedJob(customer.id, second.part.id, 4);
 
-    const [usage, report] = await Promise.all([getPartsUsage("daily"), getReport("daily")]);
+    const [usage, report] = await Promise.all([getPartsUsage(resolvePreset("today")), getReport(resolvePreset("today"))]);
 
     expect(usage.totals.quantity).toBe(6);
     expect(usage.totals.distinctParts).toBe(2);
@@ -59,13 +60,13 @@ describe("parts usage", () => {
     await saveJobPart(job.id, { partId: part.id, quantity: 5 });
 
     // Nothing has left the shelf, so nothing is reported used.
-    const usage = await getPartsUsage("daily");
+    const usage = await getPartsUsage(resolvePreset("today"));
     expect(usage.rows).toHaveLength(0);
     expect(usage.totals.quantity).toBe(0);
 
     await completeJob({ jobId: job.id });
 
-    const after = await getPartsUsage("daily");
+    const after = await getPartsUsage(resolvePreset("today"));
     expect(after.totals.quantity).toBe(5);
   });
 
@@ -75,7 +76,7 @@ describe("parts usage", () => {
     await useOnCompletedJob(customer.id, part.id, 2);
     await useOnCompletedJob(customer.id, second.part.id, 4);
 
-    const usage = await getPartsUsage("daily", { limit: 1 });
+    const usage = await getPartsUsage(resolvePreset("today"), { limit: 1 });
 
     expect(usage.rows).toHaveLength(1);
     // Busiest part first, and the totals still cover both.

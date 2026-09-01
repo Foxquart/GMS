@@ -46,7 +46,7 @@ describe("inventory service", () => {
     expect(shopBalance).toBe(7);
     expect(warehouseBalance).toBe(15);
 
-    const movements = await listMovements({ partId: part.id });
+    const { rows: movements } = await listMovements({ partId: part.id });
     const transferMoves = movements.filter((m: any) => m.movementType === "TRANSFER_OUT");
     expect(transferMoves.length).toBe(1);
   });
@@ -80,7 +80,7 @@ describe("inventory service", () => {
     expect(await getPartBalance(second.id, "WAREHOUSE")).toBe(6);
 
     // One transfer, two lines on it — not two transfers.
-    const [transfer] = await listTransfers();
+    const { rows: [transfer] } = await listTransfers();
     expect(transfer.items.length).toBe(2);
   });
 
@@ -129,7 +129,11 @@ describe("inventory service", () => {
     // The first line rolled back with the failing one.
     expect(await getPartBalance(part.id, "SHOP")).toBe(0);
     expect(await getPartBalance(part.id, "WAREHOUSE")).toBe(20);
-    expect(await listTransfers()).toHaveLength(0);
+    const transfers = await listTransfers();
+    expect(transfers.rows).toHaveLength(0);
+    // The count has to agree with the rows, or "showing 0 of 1" appears under
+    // a transfer that was rolled back and never happened.
+    expect(transfers.total).toBe(0);
   });
 
   it("transferStock rejects a move to the same location", async () => {

@@ -114,10 +114,12 @@ export default function TransfersPage() {
     placeholderData: keepPreviousData,
   });
 
-  const { data: transfers, isPending, isError, error, refetch } = useQuery({
+  const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ["transfers"],
-    queryFn: () => api<any[]>("/api/inventory/transfers"),
+    queryFn: () =>
+      api<{ rows: any[]; total: number; limit: number }>("/api/inventory/transfers"),
   });
+  const transfers = data?.rows;
 
   // Picked lines carry a snapshot of the part, because a part stays in the
   // basket after it drops out of the search results. Counts are read back off

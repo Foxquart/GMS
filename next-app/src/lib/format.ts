@@ -77,6 +77,31 @@ export const currencyFit = (
 };
 
 /**
+ * Money at a glance: exact below a lakh, abbreviated above it.
+ *
+ * The thresholds are the same ones `currencyFit` falls back to, but applied
+ * unconditionally rather than only when a figure overflows its box. That
+ * difference matters: a width-driven rule means the same quantity renders
+ * "₹64,98,711" in one tile and "₹65.0L" in another depending on how much room
+ * each happened to have, so two figures the reader is comparing arrive in
+ * different notations. A value-driven rule is predictable — the size of the
+ * number decides how it is written, and nothing else.
+ *
+ * Below a lakh nothing is abbreviated, because there the exact figure is both
+ * short and the one people quote.
+ */
+export const currencyCompact = (n: number | string | null | undefined) => {
+  const v = Number(n ?? 0);
+  const sign = v < 0 ? "-" : "";
+  const abs = Math.abs(v);
+  // Just under a crore rather than on it: ₹99,99,999 rounds to "100.0L" at one
+  // decimal, and a unit that has to count past 99 is the wrong unit.
+  if (abs >= 9.995e6) return `${sign}₹${(abs / 1e7).toFixed(2)}Cr`;
+  if (abs >= 1e5) return `${sign}₹${(abs / 1e5).toFixed(1)}L`;
+  return currency(v);
+};
+
+/**
  * A share of a total, as a whole percent.
  *
  * Returns "—" rather than a number when there is no total to be a share of.
@@ -152,6 +177,49 @@ export const formatDateCompact = (d: string | Date | null | undefined) => {
     month: "short",
     ...(sameYear ? {} : { year: "numeric" }),
   });
+};
+
+/**
+ * The window a report covers, said once: "01 – 30 Sep 2026".
+ *
+ * Whatever the two ends share is printed only at the end, on the same
+ * principle as `formatDateCompact` above — "01 Sep 2026 – 30 Sep 2026" makes
+ * the reader compare two strings to find the one part that differs. A range
+ * that starts and ends on the same day is one date, not a range of one.
+ *
+ *   same day     01 Sep 2026
+ *   same month   01 – 30 Sep 2026
+ *   same year    10 Aug – 05 Sep 2026
+ *   spanning     28 Dec 2025 – 03 Jan 2026
+ */
+export const formatDateRange = (
+  from: string | Date | null | undefined,
+  to: string | Date | null | undefined,
+) => {
+  if (!from || !to) return "—";
+  const a = new Date(from);
+  const b = new Date(to);
+  const sameDay =
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+  if (sameDay) return formatDate(a);
+
+  const sameYear = a.getFullYear() === b.getFullYear();
+  const sameMonth = sameYear && a.getMonth() === b.getMonth();
+
+  const left = a.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    ...(sameMonth ? {} : { month: "short" }),
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+  const right = b.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  // An en dash, not a hyphen: this is a range, not a subtraction.
+  return `${left} – ${right}`;
 };
 
 export const formatDateTime = (d: string | Date | null | undefined) => {

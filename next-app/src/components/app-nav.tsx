@@ -358,11 +358,21 @@ export function AppNav() {
           <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--sage)] text-sm font-extrabold text-[var(--forest)]">
             {initial}
           </span>
+          {/* Not decoration: the drawer behind this button holds Low Stock,
+              and this is that badge showing through. It was `aria-hidden` with
+              no text anywhere, so a screen-reader user got a menu button with
+              nothing to say why it wanted attention — the one group the dot
+              cannot reach on its own. */}
           {lowStockCount > 0 && (
-            <span
-              aria-hidden="true"
-              className="absolute right-0.5 top-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--canvas)] bg-[var(--terracotta)]"
-            />
+            <>
+              <span
+                aria-hidden="true"
+                className="absolute right-0.5 top-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--canvas)] bg-[var(--terracotta)]"
+              />
+              <span className="sr-only">
+                — {lowStockCount} part{lowStockCount === 1 ? "" : "s"} low on stock
+              </span>
+            </>
           )}
         </button>
       </header>

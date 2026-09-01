@@ -13,6 +13,7 @@ import {
   inventoryBalances,
   vehicles,
 } from "@/server/db/schema";
+import type { DateRange } from "@/lib/date-range";
 import { PAYMENT_METHODS } from "@/lib/format";
 import { OUTSTANDING_INVOICE_STATUSES } from "./invoice.service";
 import { getLastTransfer, getLowStock } from "./inventory.service";
@@ -29,6 +30,31 @@ export type ReportPeriod = "daily" | "weekly" | "monthly" | "yearly";
  */
 const DASHBOARD_LIST_ROWS = 4;
 
+/**
+ * The window every period figure below is measured over.
+ *
+ * This replaces a `periodStart(period)` that floored the *current* day, week,
+ * month or year and had no concept of an end at all — which is why "collected
+ * between the 10th and the 20th of August" had no answer.
+ *
+ * Both bounds are bound as ISO strings with an explicit `::timestamptz`, for
+ * the reason spelled out on `completedSince` below: once either side of a
+ * comparison is a raw `sql` expression drizzle has no column to take a type
+ * from, sends the parameter untyped, and Postgres parses it as a bare literal
+ * — dropping sub-second precision. The lower bounds inherit the same
+ * treatment so the two ends cannot behave differently.
+ *
+ * `to` is the last millisecond of the range's last day, never `now`. See the
+ * note on the Promise.all below.
+ */
+function withinRange(column: any, range: DateRange) {
+  return and(
+    sql`${column} >= ${range.from.toISOString()}::timestamptz`,
+    sql`${column} <= ${range.to.toISOString()}::timestamptz`,
+  );
+}
+
+/** Back-compat for the fixed windows the dashboard and part page still use. */
 function periodStart(period: ReportPeriod) {
   const now = new Date();
   const start = new Date(now);
@@ -71,8 +97,14 @@ const completedSince = (start: Date) =>
     sql`coalesce(${jobs.completedAt}, ${jobs.createdAt}) >= ${start.toISOString()}::timestamptz`,
   );
 
-export async function getReport(period: ReportPeriod) {
-  const start = periodStart(period);
+/** The same predicate, closed at both ends. */
+const completedWithin = (range: DateRange) =>
+  and(
+    eq(jobs.status, "COMPLETED"),
+    withinRange(sql`coalesce(${jobs.completedAt}, ${jobs.createdAt})`, range),
+  );
+
+export async function getReport(range: DateRange) {
   const now = new Date();
 
   // Six independent aggregates. Awaiting them one at a time cost six
@@ -80,12 +112,17 @@ export async function getReport(period: ReportPeriod) {
   // six times the network latency for no reason. They share no state, so
   // they go out together.
   //
-  // Each window is open-ended at the top. These predicates used to carry
-  // `lt(createdAt, now)` as well, with `now` captured before the queries went
-  // out — so a row written between that capture and the query landing fell
-  // outside "today", and an invoice raised while the page loaded went missing
-  // from the day's total. Nothing is created in the future; the upper bound
-  // only ever excluded rows that belonged.
+  // Every window is now closed at both ends, because a report can cover a
+  // range that ended in the past.
+  //
+  // The upper bound is the last millisecond of the range's last day — NOT
+  // `now`. That distinction is the whole reason the old code had no upper
+  // bound at all: an earlier version carried `lt(createdAt, now)` with `now`
+  // captured before the queries went out, so a row written between that
+  // capture and the query landing fell outside "today", and an invoice raised
+  // while the page loaded went missing from the day's total. Ending at
+  // midnight tonight cannot do that, since nothing is created in the future.
+  // Do not "tighten" this back to `now`.
   const [
     [invoiceRow],
     paymentRows,
@@ -106,7 +143,7 @@ export async function getReport(period: ReportPeriod) {
         discount: sql<string>`coalesce(sum(${invoices.discount}), 0)`,
       })
       .from(invoices)
-      .where(and(gte(invoices.createdAt, start), ne(invoices.status, "CANCELLED"))),
+      .where(and(withinRange(invoices.createdAt, range), ne(invoices.status, "CANCELLED"))),
     // Grouped rather than summed, so the method breakdown and the `collected`
     // scalar come from one scan and cannot disagree — `collected` is now the
     // sum of these rows by construction.
@@ -117,7 +154,7 @@ export async function getReport(period: ReportPeriod) {
         count: sql<number>`count(*)::int`,
       })
       .from(payments)
-      .where(gte(payments.createdAt, start))
+      .where(withinRange(payments.createdAt, range))
       .groupBy(payments.paymentMethod),
     // Jobs closed, and how long they took. `avg` is null when nothing
     // qualifies, and stays null all the way to the UI — "average turnaround:
@@ -136,7 +173,7 @@ export async function getReport(period: ReportPeriod) {
         turnaroundSample: sql<number>`count(*) filter (where ${jobs.completedAt} is not null)::int`,
       })
       .from(jobs)
-      .where(completedSince(start)),
+      .where(completedWithin(range)),
     db
       .select({ total: sql<string>`coalesce(sum(${invoices.dueAmount}), 0)` })
       .from(invoices)
@@ -152,7 +189,7 @@ export async function getReport(period: ReportPeriod) {
       .where(
         and(
           eq(stockMovements.movementType, "JOB_USAGE"),
-          gte(stockMovements.createdAt, start),
+          withinRange(stockMovements.createdAt, range),
         ),
       ),
     // Labour against parts. `lower()` is defensive: the app writes lowercase,
@@ -166,7 +203,7 @@ export async function getReport(period: ReportPeriod) {
       })
       .from(invoiceItems)
       .innerJoin(invoices, eq(invoiceItems.invoiceId, invoices.id))
-      .where(and(gte(invoices.createdAt, start), ne(invoices.status, "CANCELLED"))),
+      .where(and(withinRange(invoices.createdAt, range), ne(invoices.status, "CANCELLED"))),
     // What came through the door, by vehicle. Windowed on when the job was
     // opened, not when it closed: this is an intake mix, and scoping it to
     // completion would make it disagree with the jobs-completed count beside
@@ -182,12 +219,12 @@ export async function getReport(period: ReportPeriod) {
       })
       .from(jobs)
       .leftJoin(vehicles, eq(jobs.vehicleId, vehicles.id))
-      .where(gte(jobs.createdAt, start))
+      .where(withinRange(jobs.createdAt, range))
       .groupBy(sql`coalesce(${vehicles.vehicleType}::text, 'UNKNOWN')`),
     db
       .select({ total: sql<number>`count(*)::int` })
       .from(customersTable)
-      .where(gte(customersTable.createdAt, start)),
+      .where(withinRange(customersTable.createdAt, range)),
   ]);
 
   const billed = Number(invoiceRow?.billed ?? 0);
@@ -207,13 +244,24 @@ export async function getReport(period: ReportPeriod) {
   const avgHours = jobsRow?.avgHours;
 
   return {
-    period,
-    start,
-    end: now,
+    // The window every figure below `snapshot` was measured over.
+    range: { from: range.from, to: range.to },
+    /**
+     * Outstanding credit is NOT a period figure. It has no date predicate at
+     * all — it is the balance owed right now, across every unpaid invoice ever
+     * raised — and it used to sit in the same flat object as `billed` and
+     * `collected`, which let the UI render it in a card headed "Year's money"
+     * with "All time" underneath in small type. A caption is not a fix for a
+     * figure filed in the wrong place. Anything that does not move when the
+     * period moves belongs here, behind its own label.
+     */
+    snapshot: {
+      outstanding: Number(outstandingRow?.total ?? 0),
+      asOf: now,
+    },
     billed,
     collected,
     discount: Number(invoiceRow?.discount ?? 0),
-    outstanding: Number(outstandingRow?.total ?? 0),
     jobsCompleted: Number(jobsRow?.total ?? 0),
     invoicesCount: Number(invoiceRow?.count ?? 0),
     partsConsumed: Number(partsRow?.units ?? 0),
@@ -261,9 +309,7 @@ export async function getReport(period: ReportPeriod) {
  *   charged — what the customer was billed for those parts.
  * They diverge by the margin, which is the point of showing both.
  */
-export async function getPartsUsage(period: ReportPeriod, opts?: { limit?: number }) {
-  const start = periodStart(period);
-  const now = new Date();
+export async function getPartsUsage(range: DateRange, opts?: { limit?: number }) {
 
   // Two passes rather than one join. `job_parts` can legitimately hold more
   // than one row for the same part on one job, and joining it to the movement
@@ -284,7 +330,7 @@ export async function getPartsUsage(period: ReportPeriod, opts?: { limit?: numbe
       .where(
         and(
           eq(stockMovements.movementType, "JOB_USAGE"),
-          gte(stockMovements.createdAt, start),
+          withinRange(stockMovements.createdAt, range),
         ),
       )
       .groupBy(parts.id, parts.name, parts.partNumber, parts.unit)
@@ -317,7 +363,10 @@ export async function getPartsUsage(period: ReportPeriod, opts?: { limit?: numbe
               and(
                 eq(stockMovements.movementType, "JOB_USAGE"),
                 eq(stockMovements.referenceType, "JOB"),
-                gte(stockMovements.createdAt, start),
+                // Identical window to the quantity scan above. If these two
+                // ever diverge, quantity and charged silently describe
+                // different sets of jobs.
+                withinRange(stockMovements.createdAt, range),
               ),
             ),
         ),
@@ -349,9 +398,7 @@ export async function getPartsUsage(period: ReportPeriod, opts?: { limit?: numbe
   );
 
   return {
-    period,
-    start,
-    end: now,
+    range: { from: range.from, to: range.to },
     // Totals are computed across every part, then the list is trimmed — so a
     // limited response still reports the true totals rather than the sum of
     // the rows it happens to be carrying.
@@ -444,11 +491,17 @@ export async function getDashboard() {
     // /reports disagreed by the value of anything cancelled that day, and the
     // two screens are read one after the other.
     db
-      .select({ total: sql<string>`coalesce(sum(${invoices.total}), 0)` })
+      .select({
+        total: sql<string>`coalesce(sum(${invoices.total}), 0)`,
+        count: sql<number>`count(*)::int`,
+      })
       .from(invoices)
       .where(and(gte(invoices.createdAt, day), ne(invoices.status, "CANCELLED"))),
     db
-      .select({ total: sql<string>`coalesce(sum(${payments.amount}), 0)` })
+      .select({
+        total: sql<string>`coalesce(sum(${payments.amount}), 0)`,
+        count: sql<number>`count(*)::int`,
+      })
       .from(payments)
       .where(gte(payments.createdAt, day)),
     // The amount owed and how many people owe it, off one scan. The list
@@ -603,7 +656,11 @@ export async function getDashboard() {
   return {
     summary: {
       todayBilled: Number(todayBilled?.total ?? 0),
+      // How many invoices made up that figure, and how many payments made up
+      // the one beside it. Both ride their existing scan.
+      todayInvoiceCount: Number(todayBilled?.count ?? 0),
       todayCollected: Number(todayCollected?.total ?? 0),
+      todayPaymentCount: Number(todayCollected?.count ?? 0),
       outstanding: Number(outstanding?.total ?? 0),
       outstandingCustomers: Number(outstanding?.customers ?? 0),
       activeJobs: Number(activeJobs?.total ?? 0),

@@ -1,64 +1,100 @@
 import { BentoGrid, Skeleton } from "@/components/ui";
 
 /**
- * Paints the shape of the dashboard the instant the nav item is tapped:
- * greeting block, the hero bento, then the list sections.
+ * Paints the shape of the dashboard the instant the nav item is tapped.
  *
- * Every height here mirrors the real one in `page.tsx` — the hero pair at
- * `min-h-[9.5rem]`, the two small tiles at the `size="sm"` height, the stock
- * tile spanning both columns, and five list sections. It had drifted: it was
- * painting a 44-height hero, four equal tiles and a report card that moved to
- * /reports, so every dashboard load visibly jumped as the real layout
- * replaced it.
+ * Every height here mirrors a real one in `page.tsx`, because the whole point
+ * of the shell is that nothing moves when the data lands. It had drifted badly:
+ * it painted a six-tile grid the page no longer has, missed the "Today"
+ * heading entirely, drew the outstanding total as a plain row, and gave the
+ * two card-shaped sections stacks of loose rows. Every one of those was a jump
+ * on every visit.
  *
- * Unlike the list routes there is no `StickyControls` band to mirror here —
- * the dashboard pins nothing on purpose (see the note in `page.tsx`), so this
- * shell must stay a plain scrolling column or the real page would jump on
- * paint by the height of a divider that never arrives.
+ * Unlike the list routes there is no `StickyControls` band to mirror — the
+ * dashboard pins nothing on purpose (see the note in `page.tsx`), so this stays
+ * a plain scrolling column or the real page would jump by the height of a
+ * divider that never arrives.
  */
+
+/**
+ * A section heading: title left, "see all" link right.
+ *
+ * Every section on this page has both, so drawing only the title left a gap on
+ * the right that filled in on load.
+ */
+function HeaderBar() {
+  return (
+    <div className="mb-3 flex items-center justify-between gap-3">
+      <Skeleton className="h-5 w-36 rounded-full" />
+      <Skeleton className="h-4 w-20 rounded-full" />
+    </div>
+  );
+}
+
+/** The row height shared by every feed on the dashboard. */
+const ROW_H = "h-[4.75rem]";
+const ROWS = 4;
+
 export default function DashboardLoading() {
   return (
     <div className="space-y-6" role="status" aria-label="Loading the dashboard">
-      <div className="space-y-2.5">
-        <Skeleton className="h-3 w-28 rounded-full" />
-        <Skeleton className="h-8 w-52 rounded-full" />
-        <Skeleton className="h-4 w-64 rounded-full" />
+      {/* Greeting and date. */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-2.5">
+          <Skeleton className="h-8 w-52 rounded-full" />
+        </div>
+        <Skeleton className="mt-1 h-3 w-20 rounded-full" />
       </div>
 
+      {/* "Today" heading — a real element on the page, above the grid. */}
+      <HeaderBar />
+
+      {/* The hero pair, the two small tiles, then stock across both columns. */}
       <BentoGrid>
         <Skeleton className="h-[9.5rem]" />
         <Skeleton className="h-[9.5rem]" />
         <Skeleton className="h-[6.25rem]" />
         <Skeleton className="h-[6.25rem]" />
-        {/* Stock on hand: one tile across both columns, taller than the pair
-            above it because it carries a total, a unit line and two split
-            rows. */}
         <Skeleton className="col-span-2 h-[11rem]" />
       </BentoGrid>
 
-      {/* Five sections: outstanding credit, active jobs, low shop stock, parts
-          used today and recent invoices. Row counts and heights match the
-          in-page skeletons so the shell does not resize when data lands —
-          parts-used rows are shorter than the rest. */}
-      {[
-        { rows: 3, height: "h-[4.75rem]" },
-        { rows: 3, height: "h-[4.75rem]" },
-        { rows: 3, height: "h-[4.75rem]" },
-        { rows: 3, height: "h-[3.25rem]" },
-      ].map((section, i) => (
-        <div key={i} className="space-y-2.5">
-          <Skeleton className="h-5 w-36 rounded-full" />
-          {Array.from({ length: section.rows }).map((_, row) => (
-            <Skeleton key={row} className={section.height} />
+      {/* Outstanding credit: the total block leads, then named debtors, then
+          the link to the rest. */}
+      <section>
+        <HeaderBar />
+        <div className="space-y-2.5">
+          <Skeleton className={ROW_H} />
+          {Array.from({ length: ROWS }).map((_, i) => (
+            <Skeleton key={i} className={ROW_H} />
           ))}
+          <Skeleton className="h-11 rounded-[var(--r-tile)]" />
         </div>
+      </section>
+
+      {/* Active jobs and low shop stock: four rows and a "N more" foot each. */}
+      {["jobs", "stock"].map((key) => (
+        <section key={key}>
+          <HeaderBar />
+          <div className="space-y-2.5">
+            {Array.from({ length: ROWS }).map((_, i) => (
+              <Skeleton key={i} className={ROW_H} />
+            ))}
+            <Skeleton className="h-11 rounded-[var(--r-tile)]" />
+          </div>
+        </section>
       ))}
 
-      {/* Recent invoices is one bordered list rather than separate cards. */}
-      <div className="space-y-2.5">
-        <Skeleton className="h-5 w-36 rounded-full" />
-        <Skeleton className="h-[11rem] rounded-[var(--r-card)]" />
-      </div>
+      {/* Parts used today: one bordered card — caption, four rows, total. */}
+      <section>
+        <HeaderBar />
+        <Skeleton className="h-[17rem] rounded-[var(--r-card)]" />
+      </section>
+
+      {/* Recent invoices: one bordered list of four compact rows. */}
+      <section>
+        <HeaderBar />
+        <Skeleton className="h-[13rem] rounded-[var(--r-card)]" />
+      </section>
     </div>
   );
 }

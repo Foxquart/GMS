@@ -493,6 +493,43 @@ export const RecordBar = ({
   </div>
 );
 
+/**
+ * "Showing the first 100 of 340" — the foot of a list that stopped early.
+ *
+ * These lists have a ceiling and no way past it, which is survivable. What is
+ * not survivable is the ceiling being invisible: a list that ends at row 100
+ * with nothing said reads as the whole set, and someone scrolling to the
+ * bottom concludes there is nothing older. Now the endpoints report the true
+ * `total`, this says so.
+ *
+ * Renders nothing when everything fits, which is the normal case.
+ */
+export const TruncatedNote = ({
+  shown,
+  total,
+  noun,
+  hint,
+}: {
+  shown: number;
+  total: number;
+  /** Plural noun for the things being listed — "jobs", "invoices". */
+  noun: string;
+  /** How to see the rest, when there is a way. */
+  hint?: string;
+}) => {
+  if (!(total > shown)) return null;
+  return (
+    <p
+      role="status"
+      className="rounded-[var(--r-tile)] border border-[var(--hairline)] bg-[var(--surface)] px-3.5 py-3 text-xs font-bold text-[var(--ink-muted)]"
+    >
+      Showing the first {shown.toLocaleString("en-IN")} of{" "}
+      {total.toLocaleString("en-IN")} {noun}
+      {hint ? ` · ${hint}` : ""}
+    </p>
+  );
+};
+
 /** Responsive bento grid. Children opt into span with `col-span-2` etc. */
 export const BentoGrid = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div className={cn("grid grid-cols-2 gap-3 sm:gap-4", className)} {...props} />

@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
+import { resolvePreset } from "@/lib/date-range";
 import { eq } from "drizzle-orm";
 import { resetBusinessData, seedCustomerAndPart } from "@/test/helpers";
 import { db } from "@/server/db/connection";
@@ -69,11 +70,11 @@ describe("completed-in-period", () => {
     await saveJobPart(job.id, { partId: part.id, quantity: 1 });
     await completeJob({ jobId: job.id });
 
-    expect((await getReport("daily")).jobsCompleted).toBe(1);
+    expect((await getReport(resolvePreset("today"))).jobsCompleted).toBe(1);
 
     await db.update(jobs).set({ completedAt: null }).where(eq(jobs.id, job.id));
 
-    const report = await getReport("daily");
+    const report = await getReport(resolvePreset("today"));
     expect(report.jobsCompleted).toBe(1);
     // It cannot contribute to the average, and the sample size says so rather
     // than leaving the two figures looking inconsistent.
@@ -82,7 +83,7 @@ describe("completed-in-period", () => {
   });
 
   it("reports no turnaround rather than zero when nothing completed", async () => {
-    const report = await getReport("daily");
+    const report = await getReport(resolvePreset("today"));
     expect(report.jobsCompleted).toBe(0);
     expect(report.avgTurnaroundHours).toBeNull();
   });

@@ -32,7 +32,10 @@ import type { Category } from "@/components/inventory-types";
 function LastTransfer() {
   const { data: transfers, isPending, isError } = useQuery({
     queryKey: ["transfers"],
-    queryFn: () => api<any[]>("/api/inventory/transfers"),
+    queryFn: () =>
+      api<{ rows: any[]; total: number; limit: number }>("/api/inventory/transfers").then(
+        (r) => r.rows,
+      ),
   });
 
   if (isPending) return <Skeleton className="h-[3.25rem] rounded-[var(--r-tile)]" />;

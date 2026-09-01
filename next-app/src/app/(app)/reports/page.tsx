@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { motion } from "framer-motion";
 import {
   ArrowLeft,
   IndianRupee,
@@ -12,15 +11,10 @@ import {
   Car,
   Wallet,
   Scissors,
+  HandCoins,
 } from "lucide-react";
 import { api, errorMessage, errorReference } from "@/lib/api";
-import {
-  currency,
-  paymentMethodLabel,
-  pct,
-  turnaround,
-  vehicleTypeLabel,
-} from "@/lib/format";
+import { currency, formatDate, paymentMethodLabel, pct, turnaround, vehicleTypeLabel } from "@/lib/format";
 import {
   CircleButton,
   ErrorState,
@@ -30,17 +24,10 @@ import {
   StickyControls,
   Tile,
 } from "@/components/ui";
+import { PeriodPicker, rangeOf, type PeriodSelection } from "@/components/period-picker";
+import { toDayString } from "@/lib/date-range";
 import { useGoBack } from "@/hooks/use-go-back";
 import { cn } from "@/lib/cn";
-
-const PERIODS = [
-  { id: "daily", label: "Today" },
-  { id: "weekly", label: "Week" },
-  { id: "monthly", label: "Month" },
-  { id: "yearly", label: "Year" },
-] as const;
-
-type PeriodId = (typeof PERIODS)[number]["id"];
 
 /** Parts rows shown before the list asks to be expanded. */
 const PARTS_PREVIEW = 10;
@@ -61,16 +48,24 @@ const PARTS_PREVIEW = 10;
  */
 export default function ReportsPage() {
   const goBack = useGoBack("/dashboard");
-  const [period, setPeriod] = useState<PeriodId>("daily");
+  // Today, as before. The picker can reach eight presets, a month, a year or
+  // an arbitrary range, but what the page opens on has not changed.
+  const [selection, setSelection] = useState<PeriodSelection>({
+    kind: "preset",
+    preset: "today",
+  });
+  const range = rangeOf(selection);
+  const from = toDayString(range.from);
+  const to = toDayString(range.to);
   const [partsSort, setPartsSort] = useState<"quantity" | "charged">("quantity");
   const [showAllParts, setShowAllParts] = useState(false);
 
   const { data: report, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ["report", period],
-    queryFn: () => api<any>(`/api/reports/${period}`),
+    queryKey: ["report", from, to],
+    queryFn: () => api<any>("/api/reports", { params: { from, to } }),
   });
 
-  // Same tabs drive both cards — the breakdown of a period's consumption
+  // One window drives both cards — the breakdown of a period's consumption
   // belongs beside that period's figures, not on a page of its own.
   const {
     data: usage,
@@ -79,12 +74,19 @@ export default function ReportsPage() {
     error: usageError,
     refetch: refetchUsage,
   } = useQuery({
-    queryKey: ["report", "parts-usage", period],
-    queryFn: () => api<any>("/api/reports/parts-usage", { params: { period } }),
+    queryKey: ["report", "parts-usage", from, to],
+    queryFn: () => api<any>("/api/reports/parts-usage", { params: { from, to } }),
   });
 
-  const periodLabel = PERIODS.find((p) => p.id === period)?.label ?? "Today";
-  const inPeriod = period === "daily" ? "today" : `this ${periodLabel.toLowerCase()}`;
+  /**
+   * "in this window", for captions and empty states.
+   *
+   * This used to be `this ${periodLabel}` — "this week", "this year" — which
+   * only ever read correctly for the four presets that existed. With a custom
+   * range it would have produced "this Custom range". The dates are stated
+   * once under the title; down here the phrasing just needs to not lie.
+   */
+  const inPeriod = "in this period";
 
   // The server orders by quantity; sorting by value is a view of the same rows
   // and does not need a round trip.
@@ -111,57 +113,23 @@ export default function ReportsPage() {
           <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-[var(--ink)] sm:text-3xl">
             Reports
           </h1>
-          <p className="mt-1 text-sm font-semibold text-[var(--ink-muted)]">
+          {/* <p className="mt-1 text-sm font-semibold text-[var(--ink-muted)]">
             What the workshop billed, collected and got through.
-          </p>
+          </p> */}
         </div>
       </header>
 
-      {/* The tabs drive six sections now, not one, so they are page chrome
-          rather than part of the first card. Left inline they scrolled away,
-          and changing period after reading to the bottom meant scrolling all
+      {/* The picker drives six sections, not one, so it is page chrome rather
+          than part of the first card. Left inline it scrolled away, and
+          changing the period after reading to the bottom meant scrolling all
           the way back up. */}
       <StickyControls>
-        <div
-          role="tablist"
-          aria-label="Report period"
-          className="flex select-none rounded-full bg-[var(--surface-sunk)] p-1"
-        >
-          {PERIODS.map((p) => {
-            const active = period === p.id;
-            return (
-              <button
-                key={p.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => setPeriod(p.id)}
-                className={cn(
-                  "relative isolate flex-1 cursor-pointer rounded-full px-3 py-2 text-xs font-extrabold",
-                  "transition-[color] duration-150 ease-out",
-                  active
-                    ? "text-[var(--ink-on-dark)]"
-                    : "text-[var(--ink-muted)] hover:text-[var(--ink)]",
-                )}
-              >
-                {active && (
-                  <motion.span
-                    layoutId="reports-period-pill"
-                    aria-hidden="true"
-                    className="absolute inset-0 -z-10 rounded-full bg-[var(--forest)]"
-                    transition={{ type: "spring", stiffness: 420, damping: 36 }}
-                  />
-                )}
-                {p.label}
-              </button>
-            );
-          })}
-        </div>
+        <PeriodPicker value={selection} onChange={setSelection} />
       </StickyControls>
 
       {/* ══ Band A · Money ═══════════════════════════════════════════════ */}
       <section>
-        <SectionHeader title={`${periodLabel}’s money`} icon={<IndianRupee size={18} />} />
+        <SectionHeader title="Money" icon={<IndianRupee size={18} />} />
         {isLoading ? (
           <Skeleton className="h-[15rem] rounded-[var(--r-card)]" />
         ) : isError ? (
@@ -176,16 +144,6 @@ export default function ReportsPage() {
             rows={[
               { label: "Billed", value: currency(report?.billed) },
               { label: "Collected", value: currency(report?.collected) },
-              {
-                // Unpaid credit across every ISSUED / PARTIALLY_PAID invoice.
-                // Unlike the rest of this card it is a running balance, not a
-                // flow, so it is deliberately NOT scoped to the selected
-                // period — money owed does not stop being owed because you
-                // switched the tab to Today.
-                label: "Outstanding credit",
-                note: "All time",
-                value: currency(report?.outstanding),
-              },
               {
                 // Billed less what the parts consumed cost out of inventory.
                 // Labour has no cost side in this schema — no wages, no
@@ -245,9 +203,36 @@ export default function ReportsPage() {
         </>
       )}
 
+      {/* ══ As of today ══════════════════════════════════════════════════
+          Everything above this line happened inside the selected window.
+          Nothing below it did.
+
+          Outstanding credit used to sit in the money card with "All time" in
+          small type underneath — a caption apologising for a figure filed in
+          the wrong place. Read down a column of yearly figures and you read
+          that one as yearly too. It has no date predicate at all: it is what
+          is owed right now, across every unpaid invoice ever raised, and it
+          does not move when the period does. So it lives on its own, under a
+          heading that says which moment it belongs to. */}
+      {!isLoading && !isError && (
+        <section>
+          <SectionHeader title="As of today" icon={<HandCoins size={18} />} />
+          <FigureCard
+            rows={[
+              {
+                label: "Outstanding credit",
+                note: `Owed right now · ${formatDate(report?.snapshot?.asOf)}`,
+                value: currency(report?.snapshot?.outstanding),
+                strong: true,
+              },
+            ]}
+          />
+        </section>
+      )}
+
       {/* ══ Band B · Work ════════════════════════════════════════════════ */}
       <section>
-        <SectionHeader title={`${periodLabel}’s work`} icon={<Wrench size={18} />} />
+        <SectionHeader title="Work" icon={<Wrench size={18} />} />
         {isLoading ? (
           <Skeleton className="h-[12rem] rounded-[var(--r-card)]" />
         ) : isError ? null : (
@@ -299,7 +284,7 @@ export default function ReportsPage() {
           columns is the margin on parts, which is the reason to print both. */}
       <section>
         <SectionHeader
-          title={`Parts used — ${periodLabel}`}
+          title="Parts used"
           icon={<Boxes size={18} />}
           action={
             usage?.totals ? (

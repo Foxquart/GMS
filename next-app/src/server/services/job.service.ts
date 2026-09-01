@@ -177,6 +177,18 @@ export async function getJobStatusCounts(opts?: { q?: string }) {
   return counts;
 }
 
+/**
+ * Rows a job list returns before it stops.
+ *
+ * This is a ceiling, not a page: there is no offset, so past it the older jobs
+ * are simply not returned. What changed is that the response now says so —
+ * `total` is the real number of matches, so a caller can tell "these are all
+ * of them" from "these are the first hundred of three hundred". Silently
+ * handing back a hundred rows and letting the list end reads as complete, and
+ * an owner scrolling to the bottom concluded there was nothing older.
+ */
+const JOBS_LIST_LIMIT = 100;
+
 export async function listJobs(opts: {
   status?: string;
   q?: string;
@@ -193,32 +205,47 @@ export async function listJobs(opts: {
     );
   }
 
-  const rows = await db
-    .select({
-      id: jobs.id,
-      jobNumber: jobs.jobNumber,
-      complaint: jobs.complaint,
-      status: jobs.status,
-      createdAt: jobs.createdAt,
-      completedAt: jobs.completedAt,
-      customerId: jobs.customerId,
-      customerName: customers.name,
-      customerPhone: customers.phone,
-      vehicleType: vehicles.vehicleType,
-      vehicleName: vehicles.vehicleName,
-      total: sql<string>`coalesce((select ${invoices.total} from ${invoices} where ${invoices.jobId} = ${jobs.id}), 0)`,
-      invoiceId: sql<string | null>`(select ${invoices.id} from ${invoices} where ${invoices.jobId} = ${jobs.id})`,
-      invoiceStatus: sql<string | null>`(select ${invoices.status} from ${invoices} where ${invoices.jobId} = ${jobs.id})`,
-      partsCount: sql<number>`(select count(*) from ${jobParts} where ${jobParts.jobId} = ${jobs.id})`,
-      labourCount: sql<number>`(select count(*) from ${jobLabour} where ${jobLabour.jobId} = ${jobs.id})`,
-    })
-    .from(jobs)
-    .innerJoin(customers, eq(jobs.customerId, customers.id))
-    .leftJoin(vehicles, eq(jobs.vehicleId, vehicles.id))
-    .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(desc(jobs.createdAt))
-    .limit(opts.limit ?? 100);
-  return rows;
+  const where = conditions.length ? and(...conditions) : undefined;
+  const limit = opts.limit ?? JOBS_LIST_LIMIT;
+
+  // The count goes out beside the rows, not after them, so saying how many
+  // matched costs no extra wave of latency. It deliberately carries no
+  // per-row subqueries and no vehicle join — it only has to answer "how
+  // many", and the five correlated subqueries above are per returned row.
+  const [rows, [totalRow]] = await Promise.all([
+    db
+      .select({
+        id: jobs.id,
+        jobNumber: jobs.jobNumber,
+        complaint: jobs.complaint,
+        status: jobs.status,
+        createdAt: jobs.createdAt,
+        completedAt: jobs.completedAt,
+        customerId: jobs.customerId,
+        customerName: customers.name,
+        customerPhone: customers.phone,
+        vehicleType: vehicles.vehicleType,
+        vehicleName: vehicles.vehicleName,
+        total: sql<string>`coalesce((select ${invoices.total} from ${invoices} where ${invoices.jobId} = ${jobs.id}), 0)`,
+        invoiceId: sql<string | null>`(select ${invoices.id} from ${invoices} where ${invoices.jobId} = ${jobs.id})`,
+        invoiceStatus: sql<string | null>`(select ${invoices.status} from ${invoices} where ${invoices.jobId} = ${jobs.id})`,
+        partsCount: sql<number>`(select count(*) from ${jobParts} where ${jobParts.jobId} = ${jobs.id})`,
+        labourCount: sql<number>`(select count(*) from ${jobLabour} where ${jobLabour.jobId} = ${jobs.id})`,
+      })
+      .from(jobs)
+      .innerJoin(customers, eq(jobs.customerId, customers.id))
+      .leftJoin(vehicles, eq(jobs.vehicleId, vehicles.id))
+      .where(where)
+      .orderBy(desc(jobs.createdAt))
+      .limit(limit),
+    db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(jobs)
+      .innerJoin(customers, eq(jobs.customerId, customers.id))
+      .where(where),
+  ]);
+
+  return { rows, total: Number(totalRow?.total ?? 0), limit };
 }
 
 export async function getJob(id: string) {

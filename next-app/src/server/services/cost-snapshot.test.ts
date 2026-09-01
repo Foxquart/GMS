@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
+import { resolvePreset } from "@/lib/date-range";
 import { eq, ne, and, sql } from "drizzle-orm";
 import { resetBusinessData, seedCustomerAndPart } from "@/test/helpers";
 import { db } from "@/server/db/connection";
@@ -37,12 +38,12 @@ describe("cost snapshot", () => {
     await saveJobPart(job.id, { partId: part.id, quantity: 2 });
     await completeJob({ jobId: job.id });
 
-    const before = (await getPartsUsage("daily")).totals.cost;
+    const before = (await getPartsUsage(resolvePreset("today"))).totals.cost;
     expect(before).toBe(2 * 250);
 
     await updatePart(part.id, { purchasePrice: "900" });
 
-    expect((await getPartsUsage("daily")).totals.cost).toBe(before);
+    expect((await getPartsUsage(resolvePreset("today"))).totals.cost).toBe(before);
   });
 
   it("writes a cost on every movement, from either writer", async () => {
@@ -81,6 +82,6 @@ describe("cost snapshot", () => {
       .from(stockMovements)
       .where(eq(stockMovements.movementType, "JOB_USAGE"));
 
-    expect((await getPartsUsage("daily")).totals.cost).toBe(Number(ledger.cost));
+    expect((await getPartsUsage(resolvePreset("today"))).totals.cost).toBe(Number(ledger.cost));
   });
 });

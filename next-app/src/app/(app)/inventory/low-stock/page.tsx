@@ -3,14 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import {
-  AlertTriangle,
-  ArrowLeftRight,
-  ArrowUpDown,
-  Package,
-  Store,
-  Warehouse,
-} from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowLeftRight, ArrowUpDown, Package, Store, Warehouse } from "lucide-react";
 import { api, errorMessage, errorReference } from "@/lib/api";
 import {
   Badge,
@@ -153,8 +146,12 @@ export default function LowStockPage() {
           count tiles are read once and then scroll away. */}
       <StickyControls className="space-y-3">
         <div className="flex items-center gap-3">
+          {/* The lucide icon, like every other back control in the app. This
+              was the one place drawing a literal "←" character, which renders
+              at whatever weight the text font gives it rather than matching
+              the 18px stroked arrow everywhere else. */}
           <CircleButton onDark={false} onClick={goBack} aria-label="Back">
-            <span aria-hidden="true">←</span>
+            <ArrowLeft size={18} />
           </CircleButton>
           <div className="min-w-0">
             <p className="tile-label hidden text-[var(--ink-label)] sm:block">Inventory</p>

@@ -19,6 +19,7 @@ import {
 import { api, errorMessage, errorReference } from "@/lib/api";
 import {
   currency,
+  currencyCompact,
   currencyFit,
   formatDate,
   formatDateCompact,
@@ -37,6 +38,7 @@ import {
   Tile,
 } from "@/components/ui";
 import { SpotOilCan, VEHICLE_SPOT } from "@/components/illustrations";
+import { resolvePreset, toDayString } from "@/lib/date-range";
 import { cn } from "@/lib/cn";
 
 /** Plain grouped count — units on a shelf are never fractional. */
@@ -61,33 +63,15 @@ const HERO_TILE = "min-h-[9.5rem] justify-between gap-3 p-4";
  * floor while the tile is still shrinking. Past the budget `currencyFit` hands
  * back the short form rather than letting the figure wrap or truncate.
  *
- * The two small tiles below carry counts, which are short by nature. The one
- * other currency figure on the grid — stock on hand — sits in a full-width
- * tile and gets its own budget below.
+ * Only the hero pair needs a budget. The two small tiles below carry counts,
+ * which are short by nature, and the page's two big figures — stock at cost
+ * and outstanding credit — go through `currencyCompact` instead. They had a
+ * width budget of their own once, which was the wrong axis: it made notation
+ * depend on how much room a number happened to have, so the same quantity read
+ * "₹64,98,711" in a wide tile and "₹65.0L" in a narrower row. Letting the size
+ * of the number pick the notation is predictable.
  */
 const HERO_FIT = { em: 3.8 };
-
-/**
- * The same budget for the `col-span-2` tile, which is roughly twice the width
- * of a hero and can therefore hold about twice the figure.
- *
- * This is what earns the merge: stock at cost runs to eight digits and three
- * separators in a workshop of any size, which is ~5.9em. In a half-width tile
- * that was over budget and came back as "₹2.21Cr"; here the exact figure fits,
- * and an inventory total is a number you reconcile against, not one you skim.
- */
-const WIDE_FIT = { em: 7.6 };
-
-/**
- * Budget for the two split rows inside that tile.
- *
- * Deliberately tight. These are supporting figures beside a total, sharing a
- * line with a label and a percentage, so the short form is the right answer
- * here even though the headline above them can afford to be exact — "₹57.9L"
- * next to "Shop" says everything the row is for, where an eight-digit figure
- * with paise crowds the label it belongs to.
- */
-const SPLIT_FIT = { em: 3.2 };
 
 /**
  * How many debtors the dashboard names before handing off to /customers.
@@ -97,6 +81,13 @@ const SPLIT_FIT = { em: 3.2 };
  * arbitrary length.
  */
 const OUTSTANDING_PREVIEW = 4;
+
+/**
+ * Rows every other feed on this page carries, mirroring DASHBOARD_LIST_ROWS in
+ * report.service. Named here so the loading shells hold the same height the
+ * real lists will occupy.
+ */
+const DASHBOARD_ROWS = 4;
 
 /**
  * When an open job stops being "in progress" and starts being "forgotten".
@@ -277,8 +268,16 @@ export default function DashboardPage() {
     data: partsUsage,
     isLoading: loadingUsage,
   } = useQuery({
-    queryKey: ["report", "parts-usage", "daily", 4],
-    queryFn: () => api<any>("/api/reports/parts-usage", { params: { period: "daily", limit: "4" } }),
+    queryKey: ["report", "parts-usage", "today", 4],
+    queryFn: () => {
+      // The dashboard is always today. It resolves the day here rather than
+      // asking the server for a named period, because the endpoint no longer
+      // has a vocabulary of periods — one explicit window, every caller.
+      const today = resolvePreset("today");
+      return api<any>("/api/reports/parts-usage", {
+        params: { from: toDayString(today.from), to: toDayString(today.to), limit: "4" },
+      });
+    },
   });
 
   const {
@@ -380,12 +379,17 @@ export default function DashboardPage() {
           the one operational fact the grid was missing: how many parts are
           under their minimum. */}
       {isLoading ? (
+        // Five shapes, matching the grid below: the hero pair, the two small
+        // tiles, then stock across both columns. This still painted four equal
+        // small tiles from when the grid had six, so the row-three tile
+        // arrived taller than the space held for it and the whole page below
+        // jumped on every load.
         <BentoGrid>
           <Skeleton className="h-[9.5rem]" />
           <Skeleton className="h-[9.5rem]" />
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-[6.25rem]" />
-          ))}
+          <Skeleton className="h-[6.25rem]" />
+          <Skeleton className="h-[6.25rem]" />
+          <Skeleton className="col-span-2 h-[11rem]" />
         </BentoGrid>
       ) : (
       <BentoGrid>
@@ -410,10 +414,17 @@ export default function DashboardPage() {
           // read as a claim about the business rather than as "no parts left
           // the shelf today". Below that threshold the tile says what the day
           // did instead.
+          // Both footnotes describe the money above them. The fallback used to
+          // read "33 open · 1 closed", which counts JOBS — on a card whose
+          // figure is a rupee total, so it invited "₹2,063 across 33 open
+          // what?". A card answers one question; the job counts have their own
+          // tile directly below.
           footnote={
             Number(summary?.todayBilled ?? 0) > 0 && Number(summary?.cogsToday ?? 0) > 0
               ? `${pct(summary?.profitToday, summary?.todayBilled)} after parts`
-              : `${summary?.activeJobs ?? 0} open · ${summary?.completedToday ?? 0} closed`
+              : `${summary?.todayInvoiceCount ?? 0} invoice${
+                  summary?.todayInvoiceCount === 1 ? "" : "s"
+                }`
           }
           icon={<IndianRupee size={18} />}
         />
@@ -422,6 +433,13 @@ export default function DashboardPage() {
           className={HERO_TILE}
           label="Collected"
           value={currencyFit(summary?.todayCollected, HERO_FIT)}
+          footnote={
+            Number(summary?.todayPaymentCount ?? 0) > 0
+              ? `${summary?.todayPaymentCount} payment${
+                  summary?.todayPaymentCount === 1 ? "" : "s"
+                }`
+              : undefined
+          }
           icon={<Wallet size={18} />}
         />
 
@@ -441,7 +459,7 @@ export default function DashboardPage() {
           value={String(summary?.activeJobs ?? 0)}
           footnote={
             Number(summary?.staleJobs ?? 0) > 0
-              ? `${summary?.staleJobs} over a week`
+              ? `${summary?.staleJobs} open over a week`
               : undefined
           }
           icon={<Wrench size={15} />}
@@ -495,7 +513,7 @@ export default function DashboardPage() {
 
           <div className="mt-2 flex items-baseline gap-1.5">
             <span className="numeral truncate text-[clamp(1.5rem,6vw,2rem)]">
-              {currencyFit(summary?.stockValue, WIDE_FIT)}
+              {currencyCompact(summary?.stockValue)}
             </span>
             <span className="text-[11px] font-bold text-[var(--ink-label)]">at cost</span>
           </div>
@@ -518,7 +536,7 @@ export default function DashboardPage() {
                   </span>
                   <span className="shrink-0 text-xs font-semibold text-[var(--ink-muted)]">
                     <span className="tabular font-extrabold text-[var(--ink)]">
-                      {currencyFit(row.value, SPLIT_FIT)}
+                      {currencyCompact(row.value)}
                     </span>
                     <span className="ml-1.5 tabular">
                       {pct(row.value, summary?.stockValue)}
@@ -549,7 +567,11 @@ export default function DashboardPage() {
         />
         {loadingOutstanding ? (
           <div className="space-y-2.5">
-            {Array.from({ length: 3 }).map((_, i) => (
+            {/* The total block leads this section, so the shell has to hold
+                its height too — otherwise the rows land one block lower than
+                where they were drawn. */}
+            <Skeleton className="h-[4.75rem]" />
+            {Array.from({ length: OUTSTANDING_PREVIEW }).map((_, i) => (
               <Skeleton key={i} className="h-[4.75rem]" />
             ))}
           </div>
@@ -570,7 +592,7 @@ export default function DashboardPage() {
                 rather than a substitute for it. */}
             <div className="rounded-[var(--r-tile)] border border-[var(--terracotta)]/25 bg-[var(--terracotta)]/8 px-4 py-3">
               <p className="numeral text-[clamp(1.5rem,6vw,2rem)] leading-none text-[var(--terracotta-hover)]">
-                {currencyFit(summary?.outstanding, WIDE_FIT)}
+                {currencyCompact(summary?.outstanding)}
               </p>
               <p className="mt-1.5 text-xs font-bold text-[var(--ink-muted)]">
                 {summary?.outstandingCustomers ?? 0} customer
@@ -622,7 +644,7 @@ export default function DashboardPage() {
         />
         {isLoading ? (
           <div className="space-y-2.5">
-            {Array.from({ length: 3 }).map((_, i) => (
+            {Array.from({ length: DASHBOARD_ROWS }).map((_, i) => (
               <Skeleton key={i} className="h-[4.75rem]" />
             ))}
           </div>
@@ -674,14 +696,21 @@ export default function DashboardPage() {
           for this week, and interleaving the two buries the urgent ones. The
           warehouse side gets a count and a link at the foot instead. */}
       <section>
+        {/* To the low-stock page, not the parts browser. Every other section
+            here hands off to the page that holds the rest of its own list —
+            credit to /customers, jobs to /jobs — and this one pointed at
+            /inventory, which is the whole catalogue with the shortages mixed
+            back into it. The "more short in the warehouse" link at the foot of
+            this very section already went to the right place, so the two links
+            inside one card disagreed. */}
         <SectionHeader
           title="Low shop stock"
           icon={<PackageX size={18} />}
-          action={<SectionLink href="/inventory">Inventory</SectionLink>}
+          action={<SectionLink href="/inventory/low-stock">Low stock</SectionLink>}
         />
         {isLoading ? (
           <div className="space-y-2.5">
-            {Array.from({ length: 3 }).map((_, i) => (
+            {Array.from({ length: DASHBOARD_ROWS }).map((_, i) => (
               <Skeleton key={i} className="h-[4.75rem]" />
             ))}
           </div>
@@ -787,11 +816,9 @@ export default function DashboardPage() {
           action={<SectionLink href="/reports">Parts usage</SectionLink>}
         />
         {loadingUsage ? (
-          <div className="space-y-2.5">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-[3.25rem]" />
-            ))}
-          </div>
+          // One bordered card — a caption row, four part rows and a total
+          // row — not a stack of loose rows, which is what this drew.
+          <Skeleton className="h-[17rem] rounded-[var(--r-card)]" />
         ) : !partsUsage?.rows?.length ? (
           <AllClear>No parts consumed yet today.</AllClear>
         ) : (
@@ -849,7 +876,7 @@ export default function DashboardPage() {
           action={<SectionLink href="/invoices">All invoices</SectionLink>}
         />
         {isLoading ? (
-          <Skeleton className="h-[11rem] rounded-[var(--r-card)]" />
+          <Skeleton className="h-[13rem] rounded-[var(--r-card)]" />
         ) : !data?.recentInvoices?.length ? (
           <AllClear>No invoices yet — one is raised when you complete a job.</AllClear>
         ) : (

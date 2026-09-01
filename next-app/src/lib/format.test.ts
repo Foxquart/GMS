@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currency, currencyFit } from "./format";
+import { currency, currencyFit, formatDateRange } from "./format";
 
 // The two width budgets the dashboard actually renders at, on a 320px phone.
 const HERO = { em: 3.8 };
@@ -72,5 +72,32 @@ describe("currencyFit", () => {
 
   it("treats null as zero", () => {
     expect(currencyFit(null, SMALL)).toBe("₹0");
+  });
+});
+
+describe("formatDateRange", () => {
+  const d = (y: number, m: number, day: number) => new Date(y, m, day);
+
+  // en-IN abbreviates September as "Sept" — matching what formatDate already
+  // renders everywhere else in the app.
+  it("prints a single date when both ends are the same day", () => {
+    expect(formatDateRange(d(2026, 8, 1), d(2026, 8, 1))).toBe("01 Sept 2026");
+  });
+
+  it("says the month once when the range sits inside one", () => {
+    expect(formatDateRange(d(2026, 8, 1), d(2026, 8, 30))).toBe("01 – 30 Sept 2026");
+  });
+
+  it("says the year once when the range sits inside one", () => {
+    expect(formatDateRange(d(2026, 7, 10), d(2026, 8, 5))).toBe("10 Aug – 05 Sept 2026");
+  });
+
+  it("spells both out when the range crosses a year", () => {
+    expect(formatDateRange(d(2025, 11, 28), d(2026, 0, 3))).toBe("28 Dec 2025 – 03 Jan 2026");
+  });
+
+  it("treats a missing end as unknown rather than guessing", () => {
+    expect(formatDateRange(null, d(2026, 8, 1))).toBe("—");
+    expect(formatDateRange(d(2026, 8, 1), undefined)).toBe("—");
   });
 });

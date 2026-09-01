@@ -228,6 +228,9 @@ export async function completeJob(input: {
 }
 
 // ─── Invoice reads ───────────────────────────────────────────────────
+/** Rows an invoice list returns before it stops. See JOBS_LIST_LIMIT. */
+const INVOICES_LIST_LIMIT = 100;
+
 export async function listInvoices(opts: { status?: string; q?: string }) {
   const conditions = [];
   if (opts.status && opts.status !== "ALL") {
@@ -239,25 +242,39 @@ export async function listInvoices(opts: { status?: string; q?: string }) {
       sql`(lower(${customersTable.name}) like ${like} or ${invoices.invoiceNumber} like ${like})`,
     );
   }
-  const rows = await db
-    .select({
-      id: invoices.id,
-      invoiceNumber: invoices.invoiceNumber,
-      status: invoices.status,
-      total: invoices.total,
-      paidAmount: invoices.paidAmount,
-      dueAmount: invoices.dueAmount,
-      createdAt: invoices.createdAt,
-      customerId: invoices.customerId,
-      customerName: customersTable.name,
-      customerPhone: customersTable.phone,
-    })
-    .from(invoices)
-    .innerJoin(customersTable, eq(invoices.customerId, customersTable.id))
-    .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(desc(invoices.createdAt))
-    .limit(100);
-  return rows;
+  const where = conditions.length ? and(...conditions) : undefined;
+
+  // Rows and their count together — see the note on JOBS_LIST_LIMIT. An
+  // invoice book only grows, so this is the list most likely to hit its
+  // ceiling on a real workshop, and the one where "that's everything" being
+  // wrong costs the most.
+  const [rows, [totalRow]] = await Promise.all([
+    db
+      .select({
+        id: invoices.id,
+        invoiceNumber: invoices.invoiceNumber,
+        status: invoices.status,
+        total: invoices.total,
+        paidAmount: invoices.paidAmount,
+        dueAmount: invoices.dueAmount,
+        createdAt: invoices.createdAt,
+        customerId: invoices.customerId,
+        customerName: customersTable.name,
+        customerPhone: customersTable.phone,
+      })
+      .from(invoices)
+      .innerJoin(customersTable, eq(invoices.customerId, customersTable.id))
+      .where(where)
+      .orderBy(desc(invoices.createdAt))
+      .limit(INVOICES_LIST_LIMIT),
+    db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(invoices)
+      .innerJoin(customersTable, eq(invoices.customerId, customersTable.id))
+      .where(where),
+  ]);
+
+  return { rows, total: Number(totalRow?.total ?? 0), limit: INVOICES_LIST_LIMIT };
 }
 
 export async function getInvoice(id: string) {

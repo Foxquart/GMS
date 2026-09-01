@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
+import { resolvePreset } from "@/lib/date-range";
 import { resetBusinessData, seedCustomerAndPart } from "@/test/helpers";
 import { createJob, addLabour, saveJobPart } from "@/server/services/job.service";
 import { completeJob, recordPayment, getInvoice } from "@/server/services/invoice.service";
@@ -159,8 +160,8 @@ describe("credit & customer billing figures", () => {
     const dashboard = await getDashboard();
     expect(dashboard.summary.outstanding).toBe(1200);
 
-    const report = await getReport("daily");
-    expect(report.outstanding).toBe(1200);
+    const report = await getReport(resolvePreset("today"));
+    expect(report.snapshot.outstanding).toBe(1200);
     expect(report.billed).toBe(1200);
     expect(report.invoicesCount).toBe(1);
 
@@ -205,10 +206,10 @@ describe("credit & customer billing figures", () => {
     expect(detail.stats.outstanding).toBe(1200);
     expect(detail.stats.invoiceCount).toBe(1);
 
-    const report = await getReport("daily");
+    const report = await getReport(resolvePreset("today"));
     expect(report.billed).toBe(1200);
     expect(report.invoicesCount).toBe(1);
-    expect(report.outstanding).toBe(1200);
+    expect(report.snapshot.outstanding).toBe(1200);
 
     // The dashboard has to agree with the report it links to. Its own
     // today-billed query omitted this filter, so the two screens disagreed by

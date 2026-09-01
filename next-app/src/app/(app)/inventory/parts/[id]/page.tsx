@@ -148,7 +148,10 @@ export default function PartDetailPage() {
     refetch: refetchMovements,
   } = useQuery({
     queryKey: ["movements", id],
-    queryFn: () => api<any[]>("/api/inventory/movements", { params: { partId: id } }),
+    queryFn: () =>
+      api<{ rows: any[]; total: number; limit: number }>("/api/inventory/movements", {
+        params: { partId: id },
+      }).then((r) => r.rows),
   });
 
   const invalidate = () => {

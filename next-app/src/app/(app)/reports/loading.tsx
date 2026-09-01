@@ -1,4 +1,4 @@
-import { Skeleton } from "@/components/ui";
+import { Skeleton, StickyControls } from "@/components/ui";
 
 /**
  * Shell of the reports page: heading with its back button, the period tabs
@@ -20,8 +20,13 @@ export default function ReportsLoading() {
         </div>
       </div>
 
-      {/* The pinned tab band. */}
-      <Skeleton className="h-[46px] rounded-full" />
+      {/* The pinned tab band. Wrapped in the real `StickyControls` rather than
+          drawn as a bare pill: that component adds its own padding, a bottom
+          hairline and a gutter bleed, so a loose 46px pill sat about 24px
+          short and everything below it stepped down on load. */}
+      <StickyControls>
+        <Skeleton className="h-[46px] rounded-full" />
+      </StickyControls>
 
       {/* Band A — money: the figures card, then two breakdowns. */}
       <div className="space-y-3">

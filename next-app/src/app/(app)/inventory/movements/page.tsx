@@ -14,6 +14,7 @@ import {
   SectionHeader,
   Skeleton,
   StickyControls,
+  TruncatedNote,
 } from "@/components/ui";
 import { SpotTyre } from "@/components/illustrations";
 import { formatDateTime } from "@/lib/format";
@@ -44,13 +45,14 @@ export default function MovementsPage() {
   const partId = searchParams.get("partId") ?? undefined;
   const [locationCode, setLocationCode] = useState("");
 
-  const { data: movements, isPending, isError, error, refetch } = useQuery({
+  const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ["movements", partId, locationCode],
     queryFn: () =>
-      api<any[]>("/api/inventory/movements", {
+      api<{ rows: any[]; total: number; limit: number }>("/api/inventory/movements", {
         params: { partId, locationCode: locationCode || undefined },
       }),
   });
+  const movements = data?.rows;
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
@@ -197,6 +199,14 @@ export default function MovementsPage() {
               </li>
             ))}
           </ul>
+        )}
+        {!isPending && !isError && (
+          <TruncatedNote
+            shown={movements?.length ?? 0}
+            total={data?.total ?? 0}
+            noun="movements"
+            hint="filter by part or location to see further back"
+          />
         )}
       </section>
     </div>

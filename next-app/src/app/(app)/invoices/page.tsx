@@ -14,6 +14,7 @@ import {
   Skeleton,
   StatTile,
   StickyControls,
+  TruncatedNote,
 } from "@/components/ui";
 import { SpotClipboard } from "@/components/illustrations";
 import { currency, formatDate, invoiceStatusLabel } from "@/lib/format";
@@ -114,13 +115,14 @@ export default function InvoicesPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<FilterValue>("ALL");
 
-  const { data: invoices, isLoading, isError, error, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["invoices", status, search],
     queryFn: () =>
-      api<InvoiceRow[]>("/api/invoices", {
+      api<{ rows: InvoiceRow[]; total: number; limit: number }>("/api/invoices", {
         params: { status: status === "ALL" ? undefined : status, q: search || undefined },
       }),
   });
+  const invoices = data?.rows;
 
   const book = useMemo(() => {
     const rows = invoices ?? [];
@@ -286,6 +288,12 @@ export default function InvoicesPage() {
           {invoices.map((inv) => (
             <InvoiceRowCard key={inv.id} invoice={inv} />
           ))}
+          <TruncatedNote
+            shown={invoices.length}
+            total={data?.total ?? 0}
+            noun="invoices"
+            hint="narrow it with search or a status filter"
+          />
         </div>
       )}
     </div>

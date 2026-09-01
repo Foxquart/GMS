@@ -8,12 +8,13 @@ import { Plus, Search, X, CircleCheckBig, Clock, CircleX, Receipt } from "lucide
 import { api, errorMessage, errorReference } from "@/lib/api";
 import { currency, formatDate, vehicleTypeLabel, invoiceStatusLabel } from "@/lib/format";
 import {
-  Input,
   Button,
   EmptyState,
-  Skeleton,
   ErrorState,
+  Input,
+  Skeleton,
   StickyControls,
+  TruncatedNote,
 } from "@/components/ui";
 import { SpotTools, VEHICLE_SPOT } from "@/components/illustrations";
 import { cn } from "@/lib/cn";
@@ -98,10 +99,14 @@ export default function JobsPage() {
     return () => clearTimeout(id);
   }, [q]);
 
-  const { data: jobs, isLoading, isError, error, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["jobs", status, search],
-    queryFn: () => api<any[]>(`/api/jobs`, { params: { status, q: search || undefined } }),
+    queryFn: () =>
+      api<{ rows: any[]; total: number; limit: number }>(`/api/jobs`, {
+        params: { status, q: search || undefined },
+      }),
   });
+  const jobs = data?.rows;
 
   // Counts come from the server: the list is capped at 100 rows, so counting
   // what is in hand would start lying the moment a workshop passes a hundred.
@@ -363,6 +368,12 @@ export default function JobsPage() {
               })}
             </section>
           ))}
+          <TruncatedNote
+            shown={jobs?.length ?? 0}
+            total={data?.total ?? 0}
+            noun="jobs"
+            hint="narrow it with search or a status filter"
+          />
         </div>
       )}
     </div>

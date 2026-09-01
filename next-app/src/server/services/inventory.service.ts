@@ -604,6 +604,9 @@ export async function transferStock(input: {
   };
 }
 
+/** Rows a transfer list returns before it stops. See JOBS_LIST_LIMIT. */
+const TRANSFERS_LIST_LIMIT = 100;
+
 export async function listTransfers() {
   // Part names and both location names travel with the row: a transfer can
   // now carry twenty lines, and the history should not need the whole parts
@@ -640,8 +643,15 @@ export async function listTransfers() {
     .leftJoin(parts, eq(stockTransferItems.partId, parts.id))
     .groupBy(stockTransfers.id, fromLocation.id, toLocation.id)
     .orderBy(desc(stockTransfers.createdAt))
-    .limit(100);
-  return rows;
+    .limit(TRANSFERS_LIST_LIMIT);
+
+  // Counted on the transfer rows alone. The list query left-joins its items to
+  // aggregate them per transfer, so counting that would count line items.
+  const [totalRow] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(stockTransfers);
+
+  return { rows, total: Number(totalRow?.total ?? 0), limit: TRANSFERS_LIST_LIMIT };
 }
 
 /**
@@ -679,6 +689,9 @@ export async function getLastTransfer() {
 }
 
 // ─── Movements ───────────────────────────────────────────────────────
+/** Rows a movement list returns before it stops. See JOBS_LIST_LIMIT. */
+const MOVEMENTS_LIST_LIMIT = 100;
+
 export async function listMovements(opts: {
   partId?: string;
   locationCode?: string;
@@ -690,29 +703,43 @@ export async function listMovements(opts: {
     const loc = await getLocationByCode(opts.locationCode);
     conditions.push(eq(stockMovements.locationId, loc.id));
   }
-  const rows = await db
-    .select({
-      id: stockMovements.id,
-      partId: stockMovements.partId,
-      partName: parts.name,
-      locationCode: inventoryLocations.code,
-      movementType: stockMovements.movementType,
-      quantity: stockMovements.quantity,
-      referenceType: stockMovements.referenceType,
-      referenceId: stockMovements.referenceId,
-      notes: stockMovements.notes,
-      createdAt: stockMovements.createdAt,
-    })
-    .from(stockMovements)
-    .innerJoin(parts, eq(stockMovements.partId, parts.id))
-    .innerJoin(
-      inventoryLocations,
-      eq(stockMovements.locationId, inventoryLocations.id),
-    )
-    .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(desc(stockMovements.createdAt))
-    .limit(opts.limit ?? 100);
-  return rows;
+  const where = conditions.length ? and(...conditions) : undefined;
+  const limit = opts.limit ?? MOVEMENTS_LIST_LIMIT;
+
+  // The ledger is append-only and never pruned, so of every list in the app
+  // this is the one certain to outgrow its ceiling — a year of completed jobs
+  // alone puts thousands of JOB_USAGE rows in here. `total` is what lets the
+  // page say the history continues past what it drew.
+  const [rows, [totalRow]] = await Promise.all([
+    db
+      .select({
+        id: stockMovements.id,
+        partId: stockMovements.partId,
+        partName: parts.name,
+        locationCode: inventoryLocations.code,
+        movementType: stockMovements.movementType,
+        quantity: stockMovements.quantity,
+        referenceType: stockMovements.referenceType,
+        referenceId: stockMovements.referenceId,
+        notes: stockMovements.notes,
+        createdAt: stockMovements.createdAt,
+      })
+      .from(stockMovements)
+      .innerJoin(parts, eq(stockMovements.partId, parts.id))
+      .innerJoin(
+        inventoryLocations,
+        eq(stockMovements.locationId, inventoryLocations.id),
+      )
+      .where(where)
+      .orderBy(desc(stockMovements.createdAt))
+      .limit(limit),
+    db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(stockMovements)
+      .where(where),
+  ]);
+
+  return { rows, total: Number(totalRow?.total ?? 0), limit };
 }
 
 // ─── Stock totals ────────────────────────────────────────────────────
