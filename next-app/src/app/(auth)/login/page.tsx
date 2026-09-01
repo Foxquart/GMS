@@ -84,8 +84,13 @@ export default function LoginPage() {
     setLoading(true);
     setFailure(null);
     try {
-      await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
-      router.push("/dashboard");
+      const user = await api<{ role?: string }>("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
+      // A superadmin has no workshop pages to land on — sending them to
+      // /dashboard only to be bounced back shows a page they cannot use.
+      router.push(user?.role?.toUpperCase() === "SUPERADMIN" ? "/superadmin" : "/dashboard");
       router.refresh();
     } catch (err) {
       // One error, inline, where the fields are. No toast as well — the same

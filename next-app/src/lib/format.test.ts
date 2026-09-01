@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currency, currencyFit, formatDateRange } from "./format";
+import { bytes, currency, currencyFit, formatDateRange } from "./format";
 
 // The two width budgets the dashboard actually renders at, on a 320px phone.
 const HERO = { em: 3.8 };
@@ -99,5 +99,23 @@ describe("formatDateRange", () => {
   it("treats a missing end as unknown rather than guessing", () => {
     expect(formatDateRange(null, d(2026, 8, 1))).toBe("—");
     expect(formatDateRange(d(2026, 8, 1), undefined)).toBe("—");
+  });
+});
+
+describe("bytes", () => {
+  it("scales to the unit an operator reads", () => {
+    expect(bytes(0)).toBe("0 B");
+    expect(bytes(512)).toBe("512 B");
+    expect(bytes(1024)).toBe("1.00 KB");
+    expect(bytes(9_895_936)).toBe("9.44 MB");
+    expect(bytes(512 * 1024 ** 2)).toBe("512 MB");
+    expect(bytes(1024 ** 3)).toBe("1.00 GB");
+  });
+
+  it("treats nothing and nonsense as zero rather than throwing", () => {
+    expect(bytes(null)).toBe("0 B");
+    expect(bytes(undefined)).toBe("0 B");
+    expect(bytes(-5)).toBe("0 B");
+    expect(bytes(NaN)).toBe("0 B");
   });
 });
