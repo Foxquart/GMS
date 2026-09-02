@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -42,7 +42,10 @@ import {
   type Tone,
 } from "@/components/ui";
 import { SpotTools } from "@/components/illustrations";
+import { AnimatedDropdown } from "@/components/animated-dropdown";
 import { currency, formatDateTime } from "@/lib/format";
+import { REFERENCE_QUERY } from "@/lib/query-keys";
+import { useGoBack } from "@/hooks/use-go-back";
 import { cn } from "@/lib/cn";
 
 const movementLabel = (m: string) =>
@@ -67,7 +70,7 @@ const movementColor = (m: string) =>
 
 export default function PartDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
+  const goBack = useGoBack("/inventory");
   const qc = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
   const [eName, setEName] = useState("");
@@ -79,6 +82,8 @@ export default function PartDetailPage() {
   const [eMinShop, setEMinShop] = useState("0");
   const [eMinWarehouse, setEMinWarehouse] = useState("0");
   const [eDescription, setEDescription] = useState("");
+  const [eCategoryId, setECategoryId] = useState("");
+  const [eSubCategoryId, setESubCategoryId] = useState("");
   const [eAttributes, setEAttributes] = useState<{ label: string; value: string }[]>([]);
 
   const [stockInOpen, setStockInOpen] = useState(false);
@@ -111,6 +116,28 @@ export default function PartDetailPage() {
   const { data: categories } = useQuery({
     queryKey: ["categories"],
     queryFn: () => api<any[]>("/api/categories"),
+    ...REFERENCE_QUERY,
+  });
+
+  /**
+   * Keyed on the category chosen *in the sheet*, not the part's saved one, so
+   * switching category in the form immediately re-lists what can be picked
+   * under it.
+   */
+  const { data: editSubCategories, isFetching: editSubCategoriesLoading } = useQuery({
+    queryKey: ["subcategories", eCategoryId],
+    queryFn: () => api<any[]>("/api/subcategories", { params: { categoryId: eCategoryId } }),
+    enabled: Boolean(eCategoryId),
+    ...REFERENCE_QUERY,
+  });
+
+  // Read-only display of the part's own sub-category, which may sit under a
+  // category the sheet is not currently showing.
+  const { data: partSubCategory } = useQuery({
+    queryKey: ["subcategory", data?.subCategoryId],
+    queryFn: () => api<any>(`/api/subcategories/${data.subCategoryId}`),
+    enabled: Boolean(data?.subCategoryId),
+    ...REFERENCE_QUERY,
   });
 
   const {
@@ -121,7 +148,10 @@ export default function PartDetailPage() {
     refetch: refetchMovements,
   } = useQuery({
     queryKey: ["movements", id],
-    queryFn: () => api<any[]>("/api/inventory/movements", { params: { partId: id } }),
+    queryFn: () =>
+      api<{ rows: any[]; total: number; limit: number }>("/api/inventory/movements", {
+        params: { partId: id },
+      }).then((r) => r.rows),
   });
 
   const invalidate = () => {
@@ -233,6 +263,8 @@ export default function PartDetailPage() {
           minimumShopStock: Number(eMinShop || 0),
           minimumWarehouseStock: Number(eMinWarehouse || 0),
           description: eDescription || null,
+          categoryId: eCategoryId || null,
+          subCategoryId: eSubCategoryId || null,
           attributes: eAttributes.filter((a) => a.label.trim() || a.value.trim()),
         }),
       }),
@@ -243,6 +275,9 @@ export default function PartDetailPage() {
       qc.invalidateQueries({ queryKey: ["part", id] });
       qc.invalidateQueries({ queryKey: ["parts"] });
       qc.invalidateQueries({ queryKey: ["inventory"] });
+      // Category and sub-category tallies move with the part.
+      qc.invalidateQueries({ queryKey: ["categories"] });
+      qc.invalidateQueries({ queryKey: ["subcategories"] });
     },
     onError: (err) => setEditError(asSurfaceError(err)),
   });
@@ -260,6 +295,8 @@ export default function PartDetailPage() {
     setEMinShop(String(part?.minimumShopStock ?? 0));
     setEMinWarehouse(String(part?.minimumWarehouseStock ?? 0));
     setEDescription(part?.description ?? "");
+    setECategoryId(part?.categoryId ?? "");
+    setESubCategoryId(part?.subCategoryId ?? "");
     setEAttributes(part?.attributes ?? []);
     setEditError(null);
     setEditOpen(true);
@@ -308,7 +345,7 @@ export default function PartDetailPage() {
     return (
       <div className="mx-auto max-w-2xl space-y-5">
         <div className="flex items-center gap-3">
-          <CircleButton onDark={false} onClick={() => router.back()} aria-label="Back">
+          <CircleButton onDark={false} onClick={goBack} aria-label="Back">
             <ArrowLeft size={18} />
           </CircleButton>
           <h1 className="text-xl font-extrabold text-[var(--ink)]">Part</h1>
@@ -351,6 +388,7 @@ export default function PartDetailPage() {
 
   const categoryName =
     (categories ?? []).find((c: any) => c.id === part.categoryId)?.name ?? "Uncategorised";
+  const subCategoryName = part.subCategoryId ? (partSubCategory?.name ?? "…") : "—";
   const supplierName =
     (suppliers ?? []).find((s: any) => s.id === part.supplierId)?.name ?? "No supplier";
 
@@ -361,7 +399,10 @@ export default function PartDetailPage() {
 
   const shopTone: Tone = shopStock <= 0 ? "terracotta" : shopStock < minShop ? "ochre" : "sage";
   const warehouseTone: Tone =
-    warehouseStock <= 0 ? "terracotta" : warehouseStock < minWarehouse ? "ochre" : "cream";
+    // Sage when healthy, same as the shop. It used to be cream, so a full
+    // warehouse and a merely-adequate one looked identical while the shop got
+    // a positive green — two visual grammars for the same "this is fine".
+    warehouseStock <= 0 ? "terracotta" : warehouseStock < minWarehouse ? "ochre" : "sage";
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
@@ -371,7 +412,7 @@ export default function PartDetailPage() {
         title={part.name}
         subtitle={`${part.partNumber || "No part number"} · ${part.brand || "No brand"}`}
         leading={
-          <CircleButton onClick={() => router.back()} aria-label="Back">
+          <CircleButton onClick={goBack} aria-label="Back">
             <ArrowLeft size={18} />
           </CircleButton>
         }
@@ -437,7 +478,7 @@ export default function PartDetailPage() {
         <BentoGrid>
           <StatTile
             tone={shopTone}
-            label="Shop floor"
+            label="Shop"
             value={shopStock}
             unit={unit}
             footnote={`Minimum ${minShop}`}
@@ -454,6 +495,42 @@ export default function PartDetailPage() {
         </BentoGrid>
       </section>
 
+      {/* ── Consumption ────────────────────────────────────────────────
+          How fast this part actually leaves, beside how much of it is left.
+          Read off the JOB_USAGE ledger, so it counts parts on jobs that were
+          completed — a job still open has not taken anything off the shelf. */}
+      <section>
+        <SectionHeader title="Used on jobs" icon={<History size={16} />} />
+        <BentoGrid className="grid-cols-3">
+          <StatTile
+            size="sm"
+            tone="bright"
+            label="Today"
+            value={String(part.usage?.today ?? 0)}
+            unit={unit}
+          />
+          <StatTile
+            size="sm"
+            tone="bright"
+            label="This week"
+            value={String(part.usage?.week ?? 0)}
+            unit={unit}
+          />
+          <StatTile
+            size="sm"
+            tone="bright"
+            label="This month"
+            value={String(part.usage?.month ?? 0)}
+            unit={unit}
+          />
+        </BentoGrid>
+        <p className="mt-2 text-xs font-semibold text-[var(--ink-muted)]">
+          {(part.usage?.month ?? 0) > total
+            ? `This month got through more than the ${total} ${unit} on hand.`
+            : "Counted when the job that used them is completed."}
+        </p>
+      </section>
+
       {/* ── Specification ──────────────────────────────────────────── */}
       <section>
         <SectionHeader title="Part details" />
@@ -461,6 +538,7 @@ export default function PartDetailPage() {
           <SpecTile label="Part number" value={part.partNumber || "—"} />
           <SpecTile label="Brand" value={part.brand || "—"} />
           <SpecTile label="Category" value={categoryName} />
+          <SpecTile label="Sub-category" value={subCategoryName} />
           <SpecTile label="Supplier" value={supplierName} />
           <SpecTile label="Unit" value={unit} />
           <SpecTile
@@ -603,7 +681,7 @@ export default function PartDetailPage() {
           <Field label="Location">
             <Select value={location} onChange={(e) => setLocation(e.target.value as any)}>
               <option value="WAREHOUSE">Warehouse</option>
-              <option value="SHOP">Shop floor</option>
+              <option value="SHOP">Shop</option>
             </Select>
           </Field>
           <Field label={`Quantity (${unit})`}>
@@ -660,7 +738,7 @@ export default function PartDetailPage() {
                 setNewQty(String(next === "SHOP" ? shopStock : warehouseStock));
               }}
             >
-              <option value="SHOP">Shop floor</option>
+              <option value="SHOP">Shop</option>
               <option value="WAREHOUSE">Warehouse</option>
             </Select>
           </Field>
@@ -709,7 +787,7 @@ export default function PartDetailPage() {
             </div>
             <ArrowRight size={18} className="shrink-0 text-[var(--ink-label)]" />
             <div className="text-right">
-              <p className="tile-label text-[var(--ink-label)]">Shop floor</p>
+              <p className="tile-label text-[var(--ink-label)]">Shop</p>
               <p className="numeral mt-1 text-xl text-[var(--ink)]">{shopStock}</p>
             </div>
           </div>
@@ -776,6 +854,53 @@ export default function PartDetailPage() {
               <Input value={eUnit} onChange={(e) => setEUnit(e.target.value)} />
             </Field>
           </div>
+          <Field label="Category">
+            <AnimatedDropdown
+              options={categories ?? []}
+              value={eCategoryId}
+              onChange={(v: string) => {
+                // The server rejects a sub-category that is not filed under the
+                // chosen category, so moving category drops it here first.
+                setECategoryId(v);
+                setESubCategoryId("");
+                setEditError(null);
+              }}
+              showClearOption
+              clearLabel="Uncategorised"
+              placeholder="Pick a category"
+            />
+          </Field>
+
+          <Field
+            label="Sub-category"
+            hint={
+              !eCategoryId
+                ? "Pick a category first — sub-categories are listed inside one."
+                : undefined
+            }
+          >
+            <AnimatedDropdown
+              options={editSubCategories ?? []}
+              value={eSubCategoryId}
+              onChange={(v: string) => {
+                setESubCategoryId(v);
+                setEditError(null);
+              }}
+              disabled={!eCategoryId || editSubCategoriesLoading}
+              showClearOption
+              clearLabel="No sub-category"
+              placeholder={
+                !eCategoryId
+                  ? "Pick a category first"
+                  : editSubCategoriesLoading
+                    ? "Loading…"
+                    : editSubCategories?.length
+                      ? "Optional"
+                      : "None in this category yet"
+              }
+            />
+          </Field>
+
           <Field label="Description">
             <Textarea rows={3} value={eDescription} onChange={(e) => setEDescription(e.target.value)} />
           </Field>

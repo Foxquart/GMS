@@ -4,11 +4,12 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { IndianRupee, Plus, Search, User, X } from "lucide-react";
+import { ArrowLeft, IndianRupee, Plus, Search, User, X } from "lucide-react";
 import { ApiClientError, api, errorMessage, errorReference } from "@/lib/api";
 import {
   Badge,
   Button,
+  CircleButton,
   EmptyState,
   ErrorState,
   Field,
@@ -21,6 +22,7 @@ import {
 } from "@/components/ui";
 import { SpotTools } from "@/components/illustrations";
 import { currency } from "@/lib/format";
+import { useGoBack } from "@/hooks/use-go-back";
 import { cn } from "@/lib/cn";
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -105,6 +107,7 @@ function RegistryRow({ customer }: { customer: CustomerRow }) {
 
 export default function CustomersPage() {
   const qc = useQueryClient();
+  const goBack = useGoBack("/dashboard");
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -183,11 +186,26 @@ export default function CustomersPage() {
           not a control for it, so it sits below and scrolls away with it. */}
       <StickyControls className="space-y-2.5">
         <header className="flex items-end justify-between gap-3">
-          <div className="min-w-0">
-            <p className="tile-label text-[var(--ink-label)]">Registry</p>
-            <h1 className="mt-1 text-[clamp(1.5rem,6vw,2rem)] font-extrabold leading-none tracking-tight text-[var(--ink)]">
-              Customers
-            </h1>
+          {/* Customers is not one of the four tabs in the mobile bottom bar
+              (Dashboard, Jobs, Parts, Invoices) — it is reached through the
+              menu or by following a link — so on a phone this arrow was the
+              only way out that was not the browser gesture, and it was not
+              here. */}
+          <div className="flex min-w-0 items-end gap-3">
+            <CircleButton
+              onDark={false}
+              onClick={goBack}
+              aria-label="Back"
+              className="mb-0.5 shrink-0"
+            >
+              <ArrowLeft size={18} />
+            </CircleButton>
+            <div className="min-w-0">
+              <p className="tile-label text-[var(--ink-label)]">Registry</p>
+              <h1 className="mt-1 text-[clamp(1.5rem,6vw,2rem)] font-extrabold leading-none tracking-tight text-[var(--ink)]">
+                Customers
+              </h1>
+            </div>
           </div>
           <Button onClick={openNewCustomer} className="shrink-0">
             <Plus size={16} /> New customer

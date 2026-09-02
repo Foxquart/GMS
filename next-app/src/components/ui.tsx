@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, forwardRef, useEffect, useState } from "react";
+import { forwardRef, useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/cn";
@@ -142,13 +142,23 @@ const TONE_INK: Record<Tone, string> = {
   ochre: "text-[var(--forest-deep)]",
 };
 
+/**
+ * The caption tier for each fill.
+ *
+ * On the coloured fills this used to be the body ink at 65–75% opacity, which
+ * measured 3.5–3.6:1 against the fill underneath — below the 4.5:1 that 10px
+ * caps and 11px footnotes need. There is no muted ink to reach for on a solid
+ * accent, so on those tones the caption runs at full strength and the tier is
+ * carried by size and letterspacing instead. Sage is pale enough to keep a
+ * little transparency and still clear the bar at 80%.
+ */
 const TONE_LABEL: Record<Tone, string> = {
   cream: "text-[var(--ink-label)]",
   bright: "text-[var(--ink-label)]",
-  sage: "text-[var(--forest)]/65",
+  sage: "text-[var(--forest)]/80",
   forest: "text-[var(--ink-on-dark-muted)]",
-  terracotta: "text-[#fdf6f2]/75",
-  ochre: "text-[var(--forest-deep)]/70",
+  terracotta: "text-[#fdf6f2]",
+  ochre: "text-[var(--forest-deep)]",
 };
 
 /** A colour-blocked tile — the basic building block of every bento grid. */
@@ -169,23 +179,6 @@ export const Tile = ({
 );
 
 /**
- * A money string is one unbreakable token to the browser — "₹12,34,567.00"
- * has no space to wrap at — so a figure wider than its tile either overflows
- * or gets ellipsed. Marking each group separator as a break opportunity lets
- * a wrapping figure break at "12,34," instead of mid-group.
- */
-export const breakableFigure = (value: React.ReactNode): React.ReactNode => {
-  if (typeof value !== "string") return value;
-  const chunks = value.split(/(?<=,)/);
-  return chunks.map((chunk, i) => (
-    <Fragment key={i}>
-      {chunk}
-      {i < chunks.length - 1 && <wbr />}
-    </Fragment>
-  ));
-};
-
-/**
  * Tiny caps label over a large numeral — the figure is the hero, the label
  * is a whisper. `value` stays on one line; long values shrink rather than wrap.
  *
@@ -194,9 +187,11 @@ export const breakableFigure = (value: React.ReactNode): React.ReactNode => {
  * enough tiles that the default numeral would push the last row off the fold;
  * the dashboard uses it so eight figures fit where five used to.
  *
- * `wrap` lets the figure use more than one line — for tall tiles where the
- * room is already there and truncating a number would be the worse trade.
- * Pair it with `currencyFit` so the value handed in is one that fits.
+ * The figure never wraps. It used to be allowed to, on tall tiles, on the
+ * theory that two lines beat truncation — but a number broken across lines
+ * reads as two numbers ("₹1,72," over "000.00"), which is worse than either.
+ * Hand the value through `currencyFit` with this tile's width budget and it
+ * arrives already short enough to fit on one.
  */
 export const StatTile = ({
   label,
@@ -206,7 +201,6 @@ export const StatTile = ({
   icon,
   tone = "cream",
   size = "md",
-  wrap = false,
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & {
@@ -217,7 +211,6 @@ export const StatTile = ({
   icon?: React.ReactNode;
   tone?: Tone;
   size?: "md" | "sm";
-  wrap?: boolean;
 }) => {
   const sm = size === "sm";
   return (
@@ -227,7 +220,11 @@ export const StatTile = ({
       {...props}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className={cn("tile-label", sm && "text-[9px] tracking-[0.1em]", TONE_LABEL[tone])}>
+        {/* 10px is the floor for anything carrying meaning. This was 9px on
+            the small tiles, which is where a caps label stops being readable
+            at arm's length on a workbench — and every label on this grid names
+            the figure under it, so none of them are decoration. */}
+        <span className={cn("tile-label", sm && "text-[10px] tracking-[0.1em]", TONE_LABEL[tone])}>
           {label}
         </span>
         {icon && <span className={cn("shrink-0 opacity-45", TONE_INK[tone])}>{icon}</span>}
@@ -236,12 +233,11 @@ export const StatTile = ({
         <div className="flex items-baseline gap-1.5">
           <span
             className={cn(
-              "numeral",
-              wrap ? "min-w-0 break-words" : "truncate",
+              "numeral truncate",
               sm ? "text-[clamp(1.25rem,5vw,1.75rem)]" : "text-[clamp(1.75rem,7vw,2.5rem)]",
             )}
           >
-            {wrap ? breakableFigure(value) : value}
+            {value}
           </span>
           {unit && (
             <span className={cn(sm ? "text-[10px]" : "text-[11px]", "font-bold", TONE_LABEL[tone])}>
@@ -497,10 +493,97 @@ export const RecordBar = ({
   </div>
 );
 
+/**
+ * "Showing the first 100 of 340" — the foot of a list that stopped early.
+ *
+ * These lists have a ceiling and no way past it, which is survivable. What is
+ * not survivable is the ceiling being invisible: a list that ends at row 100
+ * with nothing said reads as the whole set, and someone scrolling to the
+ * bottom concludes there is nothing older. Now the endpoints report the true
+ * `total`, this says so.
+ *
+ * Renders nothing when everything fits, which is the normal case.
+ */
+export const TruncatedNote = ({
+  shown,
+  total,
+  noun,
+  hint,
+}: {
+  shown: number;
+  total: number;
+  /** Plural noun for the things being listed — "jobs", "invoices". */
+  noun: string;
+  /** How to see the rest, when there is a way. */
+  hint?: string;
+}) => {
+  if (!(total > shown)) return null;
+  return (
+    <p
+      role="status"
+      className="rounded-[var(--r-tile)] border border-[var(--hairline)] bg-[var(--surface)] px-3.5 py-3 text-xs font-bold text-[var(--ink-muted)]"
+    >
+      Showing the first {shown.toLocaleString("en-IN")} of{" "}
+      {total.toLocaleString("en-IN")} {noun}
+      {hint ? ` · ${hint}` : ""}
+    </p>
+  );
+};
+
 /** Responsive bento grid. Children opt into span with `col-span-2` etc. */
 export const BentoGrid = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div className={cn("grid grid-cols-2 gap-3 sm:gap-4", className)} {...props} />
 );
+
+/**
+ * One share of a total, drawn as a filled length on a track.
+ *
+ * Every breakdown in this app — the shop/warehouse split, labour against
+ * parts, the payment mix, the vehicle mix — is a stack of these, one per
+ * labelled row, rather than one stacked multi-colour bar. That is a
+ * measured decision, not a stylistic one:
+ *
+ * The palette has four fills and they are low-chroma by design. Run through a
+ * colour validator, the only plausible pair (`--forest` against `--sage`)
+ * fails on lightness band and chroma floor, and `--sage` sits at 1.09:1
+ * against the track — invisible as a fill. `--forest` on the same track is
+ * 9.45:1. So one hue is the only one that can carry a mark here, and a
+ * five-category stacked bar would have needed five.
+ *
+ * Length is therefore the encoding and the label beside it is the identity,
+ * which is the same reasoning `StockBar` on the dashboard already documents.
+ * It also reads better on a 360px phone: a 3% slice is legible as a 3% bar on
+ * its own row and unhittable as a segment inside a shared one, and there is no
+ * legend to cross-reference.
+ *
+ * `aria-hidden`, always: the row states the value and the percentage as text,
+ * so nothing here is carried by the bar alone.
+ */
+export const ShareBar = ({
+  value,
+  total,
+  className,
+}: {
+  value: number;
+  total: number;
+  /** Extra classes for the track — height overrides live here. */
+  className?: string;
+}) => {
+  const width = total > 0 ? Math.min(100, Math.max(0, (value / total) * 100)) : 0;
+  return (
+    <div
+      aria-hidden="true"
+      className={cn("h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-sunk)]", className)}
+    >
+      <div
+        className="h-full rounded-full bg-[var(--forest)] transition-[width] duration-300 ease-out"
+        // A nonzero share never renders as nothing: below about 2px the fill
+        // disappears and the row reads as "none", which is a different fact.
+        style={{ width: width > 0 ? `max(3px, ${width}%)` : 0 }}
+      />
+    </div>
+  );
+};
 
 export const Badge = ({
   className,
@@ -526,7 +609,7 @@ export const Badge = ({
       color === "slate" && "bg-[var(--surface-sunk)] text-[var(--ink-muted)]",
       color === "blue" && "bg-[var(--sage)] text-[var(--forest)]",
       color === "green" && "bg-[var(--forest)] text-[var(--ink-on-dark)]",
-      color === "amber" && "bg-[var(--ochre)]/22 text-[#8a6a10]",
+      color === "amber" && "bg-[var(--ochre)]/22 text-[var(--ochre-ink)]",
       color === "red" && "bg-[var(--terracotta)]/15 text-[var(--terracotta-hover)]",
       color === "gray" && "bg-[var(--surface-sunk)] text-[var(--ink-label)]",
       className,

@@ -114,6 +114,44 @@ export const categories = pgTable("categories", {
   index("idx_categories_name").on(table.name),
 ]);
 
+// ─── Sub-categories ──────────────────────────────────────────────────
+/**
+ * A part *type* — "back lamp", "clutch cable" — which is deliberately not
+ * owned by a single category. One "back lamp" row is linked to Royal Enfield
+ * and to Pulsar through `categorySubCategories`, rather than being duplicated
+ * once per category. A sub-category with no links is meaningless and the
+ * service refuses to create one.
+ */
+export const subCategories = pgTable("sub_categories", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_sub_categories_name").on(table.name),
+]);
+
+/**
+ * The many-to-many link. `onDelete: "cascade"` on both sides so removing
+ * either end never strands a row here — the pairing has no meaning without
+ * both of its ends.
+ */
+export const categorySubCategories = pgTable("category_sub_categories", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  categoryId: uuid("category_id")
+    .notNull()
+    .references(() => categories.id, { onDelete: "cascade" }),
+  subCategoryId: uuid("sub_category_id")
+    .notNull()
+    .references(() => subCategories.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_category_sub_categories_pair").on(table.categoryId, table.subCategoryId),
+  index("idx_category_sub_categories_category_id").on(table.categoryId),
+  index("idx_category_sub_categories_sub_category_id").on(table.subCategoryId),
+]);
+
 // ─── Suppliers ───────────────────────────────────────────────────────
 export const suppliers = pgTable("suppliers", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -129,6 +167,12 @@ export const suppliers = pgTable("suppliers", {
 export const parts = pgTable("parts", {
   id: uuid("id").primaryKey().defaultRandom(),
   categoryId: uuid("category_id").references(() => categories.id),
+  /**
+   * Optional refinement of `categoryId`. Nullable because parts predate
+   * sub-categories and a category is perfectly usable on its own; when it is
+   * set, the service checks the pair is actually linked.
+   */
+  subCategoryId: uuid("sub_category_id").references(() => subCategories.id),
   supplierId: uuid("supplier_id").references(() => suppliers.id),
   name: varchar("name", { length: 255 }).notNull(),
   partNumber: varchar("part_number", { length: 100 }),
@@ -153,6 +197,7 @@ export const parts = pgTable("parts", {
   index("idx_parts_name").on(table.name),
   index("idx_parts_part_number").on(table.partNumber),
   index("idx_parts_category_id").on(table.categoryId),
+  index("idx_parts_sub_category_id").on(table.subCategoryId),
 ]);
 
 // ─── Inventory Locations ─────────────────────────────────────────────
@@ -185,6 +230,20 @@ export const stockMovements = pgTable("stock_movements", {
   locationId: uuid("location_id").notNull().references(() => inventoryLocations.id),
   movementType: movementTypeEnum("movement_type").notNull(),
   quantity: integer("quantity").notNull(),
+  /**
+   * What one unit was worth when this row was written.
+   *
+   * Cost figures used to join `parts.purchase_price` at read time, so editing
+   * a part's price retroactively rewrote the cost of every job that had ever
+   * consumed it — last quarter's margin moved because someone corrected a
+   * price today. Snapshotting at write time is what stops that.
+   *
+   * This is replacement cost at the moment of the movement, NOT FIFO: if a
+   * part was bought at ₹200 and the purchase price is later raised to ₹250, a
+   * later JOB_USAGE of the old units is valued at ₹250. Costing the specific
+   * units consumed would need cost layers this schema does not carry.
+   */
+  unitCost: numeric("unit_cost", { precision: 10, scale: 2 }).notNull().default("0"),
   referenceType: varchar("reference_type", { length: 50 }),
   referenceId: uuid("reference_id"),
   notes: text("notes"),
@@ -193,6 +252,10 @@ export const stockMovements = pgTable("stock_movements", {
   index("idx_stock_movements_part_id").on(table.partId),
   index("idx_stock_movements_location_id").on(table.locationId),
   index("idx_stock_movements_created_at").on(table.createdAt),
+  // Every consumption figure in the app filters on movement_type AND a date
+  // window; the created_at index alone cannot discriminate the type, so each
+  // one scanned rows it would immediately discard.
+  index("idx_stock_movements_type_created_at").on(table.movementType, table.createdAt),
 ]);
 
 // ─── Stock Transfers ─────────────────────────────────────────────────
@@ -231,6 +294,8 @@ export const jobs = pgTable("jobs", {
   index("idx_jobs_status").on(table.status),
   index("idx_jobs_customer_id").on(table.customerId),
   index("idx_jobs_vehicle_id").on(table.vehicleId),
+  // Jobs-completed counts and the turnaround average both window on this.
+  index("idx_jobs_completed_at").on(table.completedAt),
 ]);
 
 // ─── Job Labour ──────────────────────────────────────────────────────
@@ -309,6 +374,8 @@ export const payments = pgTable("payments", {
 }, (table) => [
   index("idx_payments_customer_id").on(table.customerId),
   index("idx_payments_invoice_id").on(table.invoiceId),
+  // Collected-in-period, and the payment-method breakdown beside it.
+  index("idx_payments_created_at").on(table.createdAt),
 ]);
 
 // ─── Settings ────────────────────────────────────────────────────────

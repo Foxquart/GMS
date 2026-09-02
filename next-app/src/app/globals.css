@@ -16,10 +16,16 @@
   --surface-bright: #fffdf7;  /* brightest tile */
   --surface-sunk: #e7e0d0;    /* inset wells, track backgrounds */
 
-  /* Ink — never pure black */
-  --ink: #22392c;             /* forest, body + headings */
-  --ink-muted: #6f6a5c;       /* secondary copy */
-  --ink-label: #918a78;       /* tiny uppercase labels */
+  /* Ink — never pure black.
+     Three steps, every one of them clearing 4.5:1 on all three light
+     surfaces. The label tier used to be #918a78, which measured 2.84:1 on
+     canvas — and these labels are not decoration, they are the words that say
+     what each number *is*. Colour alone cannot separate a readable label from
+     readable body copy on a bone ground, so the separation is carried by the
+     type instead: `.tile-label` is 10px, uppercase, +0.12em tracked. */
+  --ink: #22392c;             /* forest, body + headings — 10.3:1 on canvas */
+  --ink-muted: #5e5a4c;       /* secondary copy — 5.7:1 */
+  --ink-label: #6e695b;       /* tiny uppercase labels — 4.5:1 */
   --ink-on-dark: #f3efe4;     /* copy on forest/terracotta fills */
   --ink-on-dark-muted: #a9bcae;
 
@@ -29,10 +35,19 @@
   --forest-hover: #2c4837;
   --sage: #cbdcce;
   --sage-deep: #b3cab8;
-  --terracotta: #c8503a;
-  --terracotta-hover: #ad4230;
+  /* Terracotta carries two jobs — a fill with pale text on it, and ink on a
+     pale ground — and the old #c8503a failed both at small sizes (4.21:1
+     under #fdf6f2, 3.72:1 as ink on canvas). This value clears 4.5:1 in both
+     directions, which is what lets one token keep doing both jobs. */
+  --terracotta: #b0442e;
+  --terracotta-hover: #963a27;
   --ochre: #d2a32b;
   --ochre-hover: #b98d1f;
+  /* Ink for text on a pale ochre tint — the amber badge and its kin. It was
+     #8a6a10, duplicated in two files and failing 4.5:1 against every surface
+     the tint sits on (3.6–4.2). One token, dark enough to clear the bar at
+     every tint strength the app uses. */
+  --ochre-ink: #6b520c;
 
   /* Structure */
   --hairline: #e0d8c8;        /* borders share the canvas hue */
@@ -53,10 +68,19 @@
   --ease-out: cubic-bezier(0.22, 0.9, 0.32, 1);
   --ease-in: cubic-bezier(0.55, 0.06, 0.68, 0.19);
 
-  /* Navigation is a sidebar (desktop) or a drawer (mobile), so nothing
-     floats over the bottom of the page any more. Page-level sticky bars
-     still anchor to this, which now only reserves the home-indicator area. */
-  --nav-inset: env(safe-area-inset-bottom);
+  /* Navigation is a sidebar (desktop) or a floating tab bar (mobile). This
+     reserves exactly what the floating bar occupies — its height, the gap it
+     floats above the edge, and the home indicator beneath it — so page
+     content and page-level sticky bars stop clear of it rather than ending
+     underneath it. Overridden at lg, where the bar is gone and only the
+     home-indicator area is left to reserve. */
+  --nav-inset: calc(5.25rem + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --nav-inset: env(safe-area-inset-bottom);
+  }
 }
 
 @theme inline {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -40,6 +40,7 @@ import {
   RecordBar,
 } from "@/components/ui";
 import { SpotClipboard } from "@/components/illustrations";
+import { useGoBack } from "@/hooks/use-go-back";
 import { cn } from "@/lib/cn";
 import {
   currency,
@@ -90,7 +91,7 @@ function InvoiceSkeleton() {
  */
 export default function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
+  const goBack = useGoBack("/invoices");
   const qc = useQueryClient();
 
   // The hero carries the back control until it scrolls away; from there the
@@ -262,7 +263,7 @@ export default function InvoiceDetailPage() {
           title={invoice.invoiceNumber}
           subtitle={`${customer?.name ?? "Customer"} · ${formatDate(invoice.createdAt)}`}
           leading={
-            <CircleButton onClick={() => router.back()} aria-label="Back">
+            <CircleButton onClick={goBack} aria-label="Back">
               <ArrowLeft size={18} />
             </CircleButton>
           }
@@ -300,7 +301,7 @@ export default function InvoiceDetailPage() {
       {/* ── Condensed record bar — arrives when the hero leaves ─────── */}
       <RecordBar
         shown={heroGone}
-        onBack={() => router.back()}
+        onBack={goBack}
         title={invoice.invoiceNumber}
         meta={customer?.name ?? "Customer"}
         trailing={

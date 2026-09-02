@@ -144,6 +144,51 @@ export async function createJob(input: {
   return job;
 }
 
+/**
+ * How many jobs sit in each status, honouring the same search the list does.
+ *
+ * One grouped pass rather than four counts. The list itself is capped at 100
+ * rows, so these cannot be derived on the client without lying as soon as a
+ * workshop passes a hundred jobs — which every workshop does.
+ */
+export async function getJobStatusCounts(opts?: { q?: string }) {
+  const conditions = [];
+  const q = opts?.q?.trim();
+  if (q) {
+    const like = `%${q.toLowerCase()}%`;
+    conditions.push(
+      sql`(lower(${customers.name}) like ${like} or ${jobs.jobNumber} like ${like})`,
+    );
+  }
+
+  const rows = await db
+    .select({ status: jobs.status, total: sql<number>`count(*)::int` })
+    .from(jobs)
+    .innerJoin(customers, eq(jobs.customerId, customers.id))
+    .where(conditions.length ? and(...conditions) : undefined)
+    .groupBy(jobs.status);
+
+  const counts = { ALL: 0, OPEN: 0, COMPLETED: 0, CANCELLED: 0 } as Record<string, number>;
+  for (const row of rows as any[]) {
+    const n = Number(row.total ?? 0);
+    counts[row.status] = n;
+    counts.ALL += n;
+  }
+  return counts;
+}
+
+/**
+ * Rows a job list returns before it stops.
+ *
+ * This is a ceiling, not a page: there is no offset, so past it the older jobs
+ * are simply not returned. What changed is that the response now says so —
+ * `total` is the real number of matches, so a caller can tell "these are all
+ * of them" from "these are the first hundred of three hundred". Silently
+ * handing back a hundred rows and letting the list end reads as complete, and
+ * an owner scrolling to the bottom concluded there was nothing older.
+ */
+const JOBS_LIST_LIMIT = 100;
+
 export async function listJobs(opts: {
   status?: string;
   q?: string;
@@ -160,32 +205,47 @@ export async function listJobs(opts: {
     );
   }
 
-  const rows = await db
-    .select({
-      id: jobs.id,
-      jobNumber: jobs.jobNumber,
-      complaint: jobs.complaint,
-      status: jobs.status,
-      createdAt: jobs.createdAt,
-      completedAt: jobs.completedAt,
-      customerId: jobs.customerId,
-      customerName: customers.name,
-      customerPhone: customers.phone,
-      vehicleType: vehicles.vehicleType,
-      vehicleName: vehicles.vehicleName,
-      total: sql<string>`coalesce((select ${invoices.total} from ${invoices} where ${invoices.jobId} = ${jobs.id}), 0)`,
-      invoiceId: sql<string | null>`(select ${invoices.id} from ${invoices} where ${invoices.jobId} = ${jobs.id})`,
-      invoiceStatus: sql<string | null>`(select ${invoices.status} from ${invoices} where ${invoices.jobId} = ${jobs.id})`,
-      partsCount: sql<number>`(select count(*) from ${jobParts} where ${jobParts.jobId} = ${jobs.id})`,
-      labourCount: sql<number>`(select count(*) from ${jobLabour} where ${jobLabour.jobId} = ${jobs.id})`,
-    })
-    .from(jobs)
-    .innerJoin(customers, eq(jobs.customerId, customers.id))
-    .leftJoin(vehicles, eq(jobs.vehicleId, vehicles.id))
-    .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(desc(jobs.createdAt))
-    .limit(opts.limit ?? 100);
-  return rows;
+  const where = conditions.length ? and(...conditions) : undefined;
+  const limit = opts.limit ?? JOBS_LIST_LIMIT;
+
+  // The count goes out beside the rows, not after them, so saying how many
+  // matched costs no extra wave of latency. It deliberately carries no
+  // per-row subqueries and no vehicle join — it only has to answer "how
+  // many", and the five correlated subqueries above are per returned row.
+  const [rows, [totalRow]] = await Promise.all([
+    db
+      .select({
+        id: jobs.id,
+        jobNumber: jobs.jobNumber,
+        complaint: jobs.complaint,
+        status: jobs.status,
+        createdAt: jobs.createdAt,
+        completedAt: jobs.completedAt,
+        customerId: jobs.customerId,
+        customerName: customers.name,
+        customerPhone: customers.phone,
+        vehicleType: vehicles.vehicleType,
+        vehicleName: vehicles.vehicleName,
+        total: sql<string>`coalesce((select ${invoices.total} from ${invoices} where ${invoices.jobId} = ${jobs.id}), 0)`,
+        invoiceId: sql<string | null>`(select ${invoices.id} from ${invoices} where ${invoices.jobId} = ${jobs.id})`,
+        invoiceStatus: sql<string | null>`(select ${invoices.status} from ${invoices} where ${invoices.jobId} = ${jobs.id})`,
+        partsCount: sql<number>`(select count(*) from ${jobParts} where ${jobParts.jobId} = ${jobs.id})`,
+        labourCount: sql<number>`(select count(*) from ${jobLabour} where ${jobLabour.jobId} = ${jobs.id})`,
+      })
+      .from(jobs)
+      .innerJoin(customers, eq(jobs.customerId, customers.id))
+      .leftJoin(vehicles, eq(jobs.vehicleId, vehicles.id))
+      .where(where)
+      .orderBy(desc(jobs.createdAt))
+      .limit(limit),
+    db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(jobs)
+      .innerJoin(customers, eq(jobs.customerId, customers.id))
+      .where(where),
+  ]);
+
+  return { rows, total: Number(totalRow?.total ?? 0), limit };
 }
 
 export async function getJob(id: string) {

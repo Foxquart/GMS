@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, History, Package } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { api, errorMessage, errorReference } from "@/lib/api";
 import {
   Badge,
@@ -14,9 +14,11 @@ import {
   SectionHeader,
   Skeleton,
   StickyControls,
+  TruncatedNote,
 } from "@/components/ui";
 import { SpotTyre } from "@/components/illustrations";
 import { formatDateTime } from "@/lib/format";
+import { useGoBack } from "@/hooks/use-go-back";
 import { cn } from "@/lib/cn";
 
 const movementColor = (m: string) =>
@@ -38,18 +40,19 @@ const FILTERS = [
 ];
 
 export default function MovementsPage() {
-  const router = useRouter();
+  const goBack = useGoBack("/inventory");
   const searchParams = useSearchParams();
   const partId = searchParams.get("partId") ?? undefined;
   const [locationCode, setLocationCode] = useState("");
 
-  const { data: movements, isPending, isError, error, refetch } = useQuery({
+  const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ["movements", partId, locationCode],
     queryFn: () =>
-      api<any[]>("/api/inventory/movements", {
+      api<{ rows: any[]; total: number; limit: number }>("/api/inventory/movements", {
         params: { partId, locationCode: locationCode || undefined },
       }),
   });
+  const movements = data?.rows;
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
@@ -58,7 +61,7 @@ export default function MovementsPage() {
           notice, are read once and then scroll away. */}
       <StickyControls className="space-y-3">
         <div className="flex items-center gap-3">
-          <CircleButton onDark={false} onClick={() => router.back()} aria-label="Back">
+          <CircleButton onDark={false} onClick={goBack} aria-label="Back">
             <ArrowLeft size={18} />
           </CircleButton>
           <div className="min-w-0">
@@ -196,6 +199,14 @@ export default function MovementsPage() {
               </li>
             ))}
           </ul>
+        )}
+        {!isPending && !isError && (
+          <TruncatedNote
+            shown={movements?.length ?? 0}
+            total={data?.total ?? 0}
+            noun="movements"
+            hint="filter by part or location to see further back"
+          />
         )}
       </section>
     </div>

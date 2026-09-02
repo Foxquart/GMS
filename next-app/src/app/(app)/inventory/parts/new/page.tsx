@@ -16,15 +16,19 @@ import {
   Textarea,
 } from "@/components/ui";
 import { AnimatedDropdown } from "@/components/animated-dropdown";
+import { REFERENCE_QUERY } from "@/lib/query-keys";
+import { useGoBack } from "@/hooks/use-go-back";
 import { cn } from "@/lib/cn";
 
 export default function NewPartPage() {
   const router = useRouter();
+  const goBack = useGoBack("/inventory");
   const qc = useQueryClient();
   const [name, setName] = useState("");
   const [partNumber, setPartNumber] = useState("");
   const [brand, setBrand] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [subCategoryId, setSubCategoryId] = useState("");
   const [sellingPrice, setSellingPrice] = useState("");
   const [purchasePrice, setPurchasePrice] = useState("");
   const [minimumShopStock, setMinimumShopStock] = useState("5");
@@ -52,7 +56,25 @@ export default function NewPartPage() {
   const { data: categories } = useQuery({
     queryKey: ["categories"],
     queryFn: () => api<any[]>("/api/categories"),
+    ...REFERENCE_QUERY,
   });
+
+  // A sub-category only means anything inside a category, so this waits for
+  // one to be picked and then asks which sub-categories that category carries.
+  const { data: subCategories, isFetching: subCategoriesLoading } = useQuery({
+    queryKey: ["subcategories", categoryId],
+    queryFn: () => api<any[]>("/api/subcategories", { params: { categoryId } }),
+    enabled: Boolean(categoryId),
+    ...REFERENCE_QUERY,
+  });
+
+  // Changing the category invalidates whatever sub-category was chosen — the
+  // server rejects a pair that is not linked, so clearing it here is the same
+  // rule stated earlier.
+  const pickCategory = (id: string) => {
+    setCategoryId(id);
+    setSubCategoryId("");
+  };
 
   const create = useMutation({
     mutationFn: () =>
@@ -63,6 +85,7 @@ export default function NewPartPage() {
           partNumber: partNumber || undefined,
           brand: brand || undefined,
           categoryId: categoryId || undefined,
+          subCategoryId: subCategoryId || undefined,
           sellingPrice: sellingPrice || undefined,
           purchasePrice: purchasePrice || undefined,
           minimumShopStock: Number(minimumShopStock),
@@ -91,7 +114,7 @@ export default function NewPartPage() {
   return (
     <div className="mx-auto max-w-lg space-y-5">
       <div className="flex items-center gap-3">
-        <CircleButton onDark={false} onClick={() => router.back()} aria-label="Back">
+        <CircleButton onDark={false} onClick={goBack} aria-label="Back">
           <ArrowLeft size={18} />
         </CircleButton>
         <div className="min-w-0">
@@ -138,11 +161,38 @@ export default function NewPartPage() {
                 <AnimatedDropdown
                   options={categories ?? []}
                   value={categoryId}
-                  onChange={setCategoryId}
+                  onChange={pickCategory}
                   placeholder="Pick a category"
                 />
               </Field>
             </div>
+
+            <Field
+              label="Sub-category"
+              hint={
+                !categoryId
+                  ? "Pick a category first — sub-categories are listed inside one."
+                  : undefined
+              }
+            >
+              <AnimatedDropdown
+                options={subCategories ?? []}
+                value={subCategoryId}
+                onChange={setSubCategoryId}
+                disabled={!categoryId || subCategoriesLoading}
+                showClearOption
+                clearLabel="No sub-category"
+                placeholder={
+                  !categoryId
+                    ? "Pick a category first"
+                    : subCategoriesLoading
+                      ? "Loading…"
+                      : subCategories?.length
+                        ? "Optional"
+                        : "None in this category yet"
+                }
+              />
+            </Field>
 
             <div className="border-t border-[var(--hairline)] pt-3.5">
             <div>

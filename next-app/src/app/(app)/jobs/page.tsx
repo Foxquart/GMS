@@ -1,37 +1,49 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Plus, Search, FileText } from "lucide-react";
+import { Plus, Search, X, CircleCheckBig, Clock, CircleX, Receipt } from "lucide-react";
 import { api, errorMessage, errorReference } from "@/lib/api";
+import { currency, formatDate, vehicleTypeLabel, invoiceStatusLabel } from "@/lib/format";
 import {
-  currency,
-  formatDate,
-  jobStatusLabel,
-  vehicleTypeLabel,
-  invoiceStatusLabel,
-} from "@/lib/format";
-import {
-  Badge,
-  Input,
   Button,
   EmptyState,
-  Skeleton,
   ErrorState,
+  Input,
+  Skeleton,
   StickyControls,
+  TruncatedNote,
 } from "@/components/ui";
 import { SpotTools, VEHICLE_SPOT } from "@/components/illustrations";
 import { cn } from "@/lib/cn";
 
-const FILTERS = ["ALL", "OPEN", "COMPLETED", "CANCELLED"];
+const FILTERS = ["ALL", "OPEN", "COMPLETED", "CANCELLED"] as const;
 
 const FILTER_LABEL: Record<string, string> = {
   ALL: "All",
   OPEN: "Open",
   COMPLETED: "Done",
   CANCELLED: "Cancelled",
+};
+
+/**
+ * Status as icon + word, not a filled pill.
+ *
+ * Three chunky badges per card (status, invoice, amount) gave every historical
+ * job the same visual shout as a live one. Colour still carries the meaning at
+ * a glance, but the word carries it for anyone who cannot use the colour — the
+ * accessibility rule here is explicit that colour must never be the only
+ * channel, so the label is not optional decoration.
+ */
+const STATUS_META: Record<
+  string,
+  { label: string; icon: typeof Clock; className: string }
+> = {
+  OPEN: { label: "Open", icon: Clock, className: "text-[#8a6a10]" },
+  COMPLETED: { label: "Completed", icon: CircleCheckBig, className: "text-[var(--forest)]" },
+  CANCELLED: { label: "Cancelled", icon: CircleX, className: "text-[var(--ink-label)]" },
 };
 
 const DAY_MS = 86_400_000;
@@ -68,21 +80,41 @@ function groupByDay(jobs: any[]) {
   return groups;
 }
 
+/** "JOB-2026-0008" is four tokens to read when only the last one varies. */
+function shortJobNumber(jobNumber: string) {
+  const tail = String(jobNumber ?? "").split("-").pop();
+  return tail ? `#${tail}` : jobNumber;
+}
+
 export default function JobsPage() {
-  const [status, setStatus] = useState("ALL");
+  const [status, setStatus] = useState<string>("ALL");
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
 
-  const { data: jobs, isLoading, isError, error, refetch } = useQuery({
+  // The separate Search button is gone. A list that can filter itself as you
+  // type should — the button was a second thing to hit for a result the field
+  // could deliver on its own. Debounced so it does not fire per keystroke.
+  useEffect(() => {
+    const id = setTimeout(() => setSearch(q.trim()), 300);
+    return () => clearTimeout(id);
+  }, [q]);
+
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["jobs", status, search],
-    queryFn: () => api<any[]>(`/api/jobs`, { params: { status, q: search || undefined } }),
+    queryFn: () =>
+      api<{ rows: any[]; total: number; limit: number }>(`/api/jobs`, {
+        params: { status, q: search || undefined },
+      }),
   });
+  const jobs = data?.rows;
 
-  const badgeColor = (s: string) =>
-    s === "COMPLETED" ? "green" : s === "CANCELLED" ? "red" : "amber";
-
-  const invoiceBadgeColor = (s: string) =>
-    s === "PAID" ? "green" : s === "PARTIALLY_PAID" ? "amber" : "slate";
+  // Counts come from the server: the list is capped at 100 rows, so counting
+  // what is in hand would start lying the moment a workshop passes a hundred.
+  const { data: counts } = useQuery({
+    queryKey: ["jobs", "counts", search],
+    queryFn: () =>
+      api<Record<string, number>>("/api/jobs/counts", { params: { q: search || undefined } }),
+  });
 
   const groups = groupByDay(jobs ?? []);
 
@@ -110,33 +142,48 @@ export default function JobsPage() {
           </Link>
         </header>
 
-        <div className="flex gap-2.5">
-          <div className="relative min-w-0 flex-1">
-            <Search
-              size={16}
-              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--ink-label)]"
-            />
-            <Input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Customer or job number"
-              className="pl-10"
-              onKeyDown={(e) => e.key === "Enter" && setSearch(q)}
-              aria-label="Search jobs"
-            />
-          </div>
-          <Button variant="secondary" onClick={() => setSearch(q)}>
-            Search
-          </Button>
+        <div className="relative">
+          <Search
+            size={16}
+            className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--ink-label)]"
+          />
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search jobs, customers or job number"
+            className="pl-10 pr-11"
+            // The placeholder is a hint, not a label — it disappears the moment
+            // anyone types, so the accessible name is carried separately.
+            aria-label="Search jobs"
+          />
+          {q && (
+            <button
+              type="button"
+              onClick={() => setQ("")}
+              aria-label="Clear search"
+              className={cn(
+                "absolute right-2.5 top-1/2 flex h-7 w-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full",
+                "text-[var(--ink-label)] transition-[background-color,color] duration-150 ease-out",
+                "hover:bg-[var(--surface-sunk)] hover:text-[var(--ink)]",
+              )}
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
 
+        {/* Underline tabs, not a filled capsule. The capsule made four
+            destinations read as one heavy control competing with the cards;
+            an underline puts the weight on the word that is selected and
+            spends no fill on the three that are not. Targets stay 44px tall. */}
         <div
           role="tablist"
           aria-label="Filter jobs by status"
-          className="flex select-none rounded-full bg-[var(--surface-sunk)] p-1"
+          className="-mx-1 flex select-none items-stretch gap-1 overflow-x-auto px-1"
         >
           {FILTERS.map((f) => {
             const active = status === f;
+            const count = counts?.[f];
             return (
               <button
                 key={f}
@@ -145,22 +192,32 @@ export default function JobsPage() {
                 aria-selected={active}
                 onClick={() => setStatus(f)}
                 className={cn(
-                  "relative isolate flex-1 cursor-pointer rounded-full px-2 py-2 text-xs font-extrabold",
-                  "transition-[color] duration-150 ease-out",
-                  active
-                    ? "text-[var(--ink-on-dark)]"
-                    : "text-[var(--ink-muted)] hover:text-[var(--ink)]",
+                  "relative shrink-0 cursor-pointer px-3 pb-2 pt-2.5 text-xs font-extrabold",
+                  "min-h-11 transition-[color] duration-150 ease-out",
+                  active ? "text-[var(--ink)]" : "text-[var(--ink-label)] hover:text-[var(--ink-muted)]",
                 )}
               >
+                <span className="inline-flex items-center gap-1.5">
+                  {FILTER_LABEL[f]}
+                  {count !== undefined && (
+                    <span
+                      className={cn(
+                        "numeral text-[11px] leading-none",
+                        active ? "text-[var(--ink-muted)]" : "text-[var(--ink-label)]",
+                      )}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </span>
                 {active && (
                   <motion.span
-                    layoutId="jobs-filter-pill"
+                    layoutId="jobs-filter-underline"
                     aria-hidden="true"
-                    className="absolute inset-0 -z-10 rounded-full bg-[var(--forest)]"
+                    className="absolute inset-x-2 bottom-0 h-[2.5px] rounded-full bg-[var(--forest)]"
                     transition={{ type: "spring", stiffness: 420, damping: 36 }}
                   />
                 )}
-                {FILTER_LABEL[f]}
               </button>
             );
           })}
@@ -172,9 +229,9 @@ export default function JobsPage() {
         <div className="space-y-5">
           {[0, 1].map((day) => (
             <div key={day} className="space-y-2.5">
-              <Skeleton className="h-4 w-full max-w-xs rounded-full" />
+              <Skeleton className="h-3 w-32 rounded-full" />
               {Array.from({ length: day === 0 ? 3 : 2 }).map((_, i) => (
-                <Skeleton key={i} className="h-24" />
+                <Skeleton key={i} className="h-[5.25rem]" />
               ))}
             </div>
           ))}
@@ -207,16 +264,16 @@ export default function JobsPage() {
         <div className="space-y-6">
           {groups.map((group) => (
             <section key={group.stamp} className="space-y-2.5">
-              <div className="flex items-center gap-3 px-1">
-                <h2
-                  className="shrink-0 text-sm font-extrabold tracking-tight text-[var(--ink)]"
-                  suppressHydrationWarning
-                >
+              {/* Quieter than the cards it introduces. The rule line that used
+                  to run across here drew a horizontal stripe every few rows
+                  and competed with the thing it was labelling; small uppercase
+                  type does the same job with no ink. */}
+              <div className="flex items-baseline justify-between gap-3 px-1">
+                <h2 className="tile-label text-[var(--ink-label)]" suppressHydrationWarning>
                   {dayHeading(group.stamp)}
                 </h2>
-                <span aria-hidden="true" className="h-px min-w-4 flex-1 bg-[var(--hairline-strong)]" />
-                <span className="tile-label shrink-0 text-[var(--ink-label)]">
-                  {group.jobs.length} {group.jobs.length === 1 ? "job" : "jobs"}
+                <span className="numeral text-[11px] leading-none text-[var(--ink-label)]">
+                  {group.jobs.length}
                 </span>
               </div>
 
@@ -224,64 +281,110 @@ export default function JobsPage() {
                 const Spot =
                   VEHICLE_SPOT[(job.vehicleType as keyof typeof VEHICLE_SPOT) ?? "OTHER"] ??
                   VEHICLE_SPOT.OTHER;
+                const meta = STATUS_META[job.status] ?? STATUS_META.OPEN;
+                const StatusIcon = meta.icon;
+                const cancelled = job.status === "CANCELLED";
+                const vehicle = job.vehicleType
+                  ? vehicleTypeLabel(job.vehicleType)
+                  : "Vehicle not recorded";
+
                 return (
                   <Link
                     key={job.id}
                     href={`/jobs/${job.id}`}
                     className={cn(
                       "flex items-start gap-3 rounded-[var(--r-tile)] border border-[var(--hairline)] bg-[var(--surface-bright)] p-3.5",
-                      "transition-[background-color,border-color,transform] duration-150 ease-out",
+                      "transition-[background-color,border-color,transform,opacity] duration-150 ease-out",
                       "hover:border-[var(--hairline-strong)] hover:bg-[var(--surface)] active:scale-[0.995]",
+                      // Status decides emphasis. A cancelled job is history
+                      // that did not happen; it should not shout as loudly as
+                      // the one on the ramp.
+                      cancelled && "bg-[var(--surface)] opacity-65 hover:opacity-100",
                     )}
                   >
+                    {/* The vehicle used to be named in text beside this mark,
+                        which made the mark decorative. It is the only thing
+                        saying "bike" now, so it carries the name itself. */}
                     <span
-                      aria-hidden="true"
-                      className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-[var(--r-control)] bg-[var(--surface-sunk)]"
+                      role="img"
+                      aria-label={vehicle}
+                      className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-[var(--r-control)] bg-[var(--surface-sunk)]"
                     >
-                      <Spot size={42} />
+                      <Spot size={38} />
                     </span>
 
-                    {/* Identity — truncates rather than pushing the column right. */}
-                    <div className="min-w-0 flex-1 py-0.5">
-                      <p className="truncate text-sm font-extrabold text-[var(--ink)]">
-                        {job.customerName}
-                      </p>
-                      <p className="truncate text-xs font-semibold text-[var(--ink-muted)]">
-                        {job.jobNumber} · {formatDate(job.createdAt)}
-                      </p>
-                      <p className="truncate text-xs text-[var(--ink-label)]">
-                        {job.vehicleType ? vehicleTypeLabel(job.vehicleType) : "Vehicle not recorded"}
-                        {job.complaint ? ` · ${job.complaint}` : ""}
-                      </p>
-                    </div>
+                    <div className="min-w-0 flex-1">
+                      {/* Line one answers "whose, and how much" — the two
+                          things worth a full-weight face on this screen. */}
+                      <div className="flex items-baseline justify-between gap-3">
+                        <p className="min-w-0 truncate text-sm font-extrabold text-[var(--ink)]">
+                          {job.customerName}
+                        </p>
+                        {Number(job.total) > 0 && (
+                          <span className="tabular shrink-0 text-sm font-extrabold text-[var(--ink)]">
+                            {currency(job.total)}
+                          </span>
+                        )}
+                      </div>
 
-                    {/* Status — fixed column, badges never wrap. */}
-                    <div className="flex shrink-0 flex-col items-end gap-1.5">
-                      <Badge color={badgeColor(job.status)} dot>
-                        {jobStatusLabel(job.status)}
-                      </Badge>
-                      {job.invoiceId && (
-                        <Badge
-                          color={invoiceBadgeColor(job.invoiceStatus)}
-                          className="px-2 text-[10px] tracking-normal"
-                        >
-                          <FileText size={10} />
-                          {invoiceStatusLabel(job.invoiceStatus)}
-                        </Badge>
-                      )}
-                      {Number(job.total) > 0 && (
-                        <span className="tabular text-sm font-extrabold text-[var(--ink)]">
-                          {currency(job.total)}
+                      {/* Line two is why the vehicle is here. */}
+                      <p className="mt-0.5 truncate text-xs font-semibold text-[var(--ink-muted)]">
+                        {job.complaint || vehicle}
+                      </p>
+
+                      {/* Line three is everything you only read once you have
+                          found the right row: which job, which day, what state
+                          it is in, and whether the money landed. One quiet
+                          line instead of three stacked badges. */}
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] font-semibold text-[var(--ink-label)]">
+                        <span className="numeral">{shortJobNumber(job.jobNumber)}</span>
+                        <Dot />
+                        <span suppressHydrationWarning>{formatDate(job.createdAt)}</span>
+                        <Dot />
+                        <span className={cn("inline-flex items-center gap-1", meta.className)}>
+                          <StatusIcon size={12} aria-hidden />
+                          {meta.label}
                         </span>
-                      )}
+                        {job.invoiceId && !cancelled && (
+                          <>
+                            <Dot />
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1",
+                                job.invoiceStatus === "PAID"
+                                  ? "text-[var(--forest)]"
+                                  : "text-[var(--ink-label)]",
+                              )}
+                            >
+                              <Receipt size={12} aria-hidden />
+                              {invoiceStatusLabel(job.invoiceStatus)}
+                            </span>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </Link>
                 );
               })}
             </section>
           ))}
+          <TruncatedNote
+            shown={jobs?.length ?? 0}
+            total={data?.total ?? 0}
+            noun="jobs"
+            hint="narrow it with search or a status filter"
+          />
         </div>
       )}
     </div>
+  );
+}
+
+/** Separator between metadata items. Decorative, so it is hidden. */
+function Dot() {
+  return (
+    <span aria-hidden="true" className="text-[var(--hairline-strong)]">
+      ·
+    </span>
   );
 }
