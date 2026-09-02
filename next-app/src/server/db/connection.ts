@@ -185,14 +185,53 @@ async function assertSchemaPresent() {
 }
 
 /**
+ * The two stock locations the app is built around.
+ *
+ * Deliberately an exception to "boot does not seed", and worth stating why,
+ * because the surrounding rule is a good one.
+ *
+ * These are not the operator's data — they are constants this codebase
+ * hardcodes, and every stock write resolves SHOP or WAREHOUSE by code. There
+ * is no way to delete one through the app (no route, no service, no UI), so
+ * re-creating a missing row cannot fight anybody's deliberate deletion. That
+ * is exactly the concern that keeps the *category* defaults out of the boot
+ * path — a deleted default category must stay deleted — and it simply does not
+ * apply here.
+ *
+ * Without this, a database with schema but no seed data looks perfectly
+ * healthy: every list, the dashboard and every read work. The first write that
+ * touches stock — usually saving a part with opening quantities, the first
+ * thing a new workshop does — is where it surfaces, as a failure a long way
+ * from its cause.
+ *
+ * `onConflictDoNothing` on the unique `code` makes it safe for two cold starts
+ * to race, which on serverless they will.
+ */
+async function ensureStockLocations() {
+  await db
+    .insert(schema.inventoryLocations)
+    .values([
+      { name: "Main Shop", code: "SHOP", locationType: "SHOP" },
+      { name: "Main Warehouse", code: "WAREHOUSE", locationType: "WAREHOUSE" },
+    ] as any)
+    .onConflictDoNothing({ target: schema.inventoryLocations.code });
+}
+
+/**
  * Resolves once the connection is warm and the schema is present. Next begins
  * accepting requests before `register()` has finished, so without this gate an
  * early request runs against a database that is not ready and dies with a raw
  * "Failed query".
  *
- * It does NOT migrate or seed. Running migrations on every boot meant every
- * server start raced every other one over the same data directory, and made a
- * restart able to rewrite data. Setup is now explicit: `npm run db:setup`.
+ * It does NOT migrate, and it does not seed anything the operator owns.
+ * Running migrations on every boot meant every server start raced every other
+ * one over the same data directory, and made a restart able to rewrite data.
+ * Setup is explicit: `npm run db:setup`.
+ *
+ * The one exception is the two stock locations — see `ensureStockLocations`
+ * for why those are the app's constants rather than the operator's data, and
+ * why leaving them to explicit setup produced a 503 on the first stock write
+ * of every incompletely-set-up database.
  *
  * Memoised on globalThis, so every call after the first is an already-resolved
  * promise and costs nothing. On failure the memo is cleared so the next
@@ -203,6 +242,7 @@ export function dbReady(): Promise<void> {
     globalForDb.dbReady = (async () => {
       await warmDb();
       await assertSchemaPresent();
+      await ensureStockLocations();
     })().catch((err) => {
       globalForDb.dbReady = undefined;
       throw err;

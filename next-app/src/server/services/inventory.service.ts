@@ -15,17 +15,55 @@ import {
 import { ApiError } from "@/server/lib/http";
 
 // ─── Location helpers ────────────────────────────────────────────────
-export async function getLocationByCode(code: string) {
+/**
+ * A location, or null if it does not exist.
+ *
+ * For READ paths. A workshop whose locations have not been created yet holds
+ * no stock anywhere, so "what is low?" and "what has moved?" have a correct
+ * and unremarkable answer — nothing — and a list endpoint should say that with
+ * an empty 200 rather than a server error. Throwing here turned "no data" into
+ * "something is broken", which is a different claim and the wrong one.
+ */
+export async function findLocationByCode(code: string) {
   const [loc] = await db
     .select()
     .from(inventoryLocations)
     .where(eq(inventoryLocations.code, code))
     .limit(1);
+  return loc ?? null;
+}
+
+/**
+ * The same lookup, but insisting the location exists.
+ *
+ * For WRITE paths only — booking stock in, adjusting it, moving it between
+ * locations, consuming it on a completed job. None of those have a sensible
+ * "there is no such location" outcome: the caller is trying to change a
+ * quantity somewhere, and if the somewhere is missing the request cannot be
+ * honoured and must not appear to have succeeded.
+ *
+ * Raised as an ApiError so the person gets a sentence that names the problem.
+ * This used to be a bare `Error`, which `handleError` turned into "Something
+ * went wrong on our end" plus a reference code — accurate, and useless: the
+ * cause is knowable, singular, and fixed by one command. Saving a part with
+ * opening stock is where it surfaces first, because that is usually the first
+ * write a fresh workshop makes.
+ *
+ * 503 rather than 500: the request was well-formed and would succeed once the
+ * database is set up, which is exactly what "unavailable" means. The server
+ * log still carries the location code.
+ */
+export async function getLocationByCode(code: string) {
+  const loc = await findLocationByCode(code);
   if (!loc) {
-    // Not an ApiError: this is a setup fault, not something the user did or
-    // can act on. handleError logs it against a reference and shows a
-    // generic message rather than leaking the location code.
-    throw new Error(`Inventory location "${code}" is missing — database not seeded?`);
+    console.error(
+      `[inventory] location "${code}" is missing — run \`npm run db:setup\` to seed SHOP and WAREHOUSE.`,
+    );
+    throw new ApiError(
+      503,
+      "Stock locations haven't been set up yet, so this can't be saved. Ask whoever set up this workshop to finish the database setup.",
+      "LOCATIONS_MISSING",
+    );
   }
   return loc;
 }
@@ -46,7 +84,10 @@ async function getBalance(partId: string, locationId: string) {
 }
 
 export async function getPartBalance(partId: string, locationCode: string) {
-  const loc = await getLocationByCode(locationCode);
+  // Read path: nothing is stored at a location that does not exist, and zero
+  // is the honest answer to "how many are there".
+  const loc = await findLocationByCode(locationCode);
+  if (!loc) return 0;
   const bal = await getBalance(partId, loc.id);
   return bal?.quantity ?? 0;
 }
@@ -700,7 +741,10 @@ export async function listMovements(opts: {
   const conditions = [];
   if (opts.partId) conditions.push(eq(stockMovements.partId, opts.partId));
   if (opts.locationCode) {
-    const loc = await getLocationByCode(opts.locationCode);
+    const loc = await findLocationByCode(opts.locationCode);
+    // Filtering by a location that does not exist is a filter that matches
+    // nothing, not a broken request.
+    if (!loc) return { rows: [], total: 0, limit: opts.limit ?? MOVEMENTS_LIST_LIMIT };
     conditions.push(eq(stockMovements.locationId, loc.id));
   }
   const where = conditions.length ? and(...conditions) : undefined;
@@ -832,10 +876,16 @@ export async function getLowStock(opts?: {
 }) {
   const shop = opts?.locations
     ? { id: opts.locations.shopId }
-    : await getLocationByCode("SHOP");
+    : await findLocationByCode("SHOP");
   const warehouse = opts?.locations
     ? { id: opts.locations.warehouseId }
-    : await getLocationByCode("WAREHOUSE");
+    : await findLocationByCode("WAREHOUSE");
+
+  // No locations means no balances to be under a minimum. Returning early
+  // also keeps the ids out of the query below: they are compared against a
+  // uuid column, and an empty string there is a SQL type error, not an
+  // empty result.
+  if (!shop?.id || !warehouse?.id) return [];
 
   // A part counts as low when EITHER location is under its own minimum.
   //

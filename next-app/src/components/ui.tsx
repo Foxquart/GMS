@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef, useEffect, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Eye, EyeOff } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/cn";
 import { SpotClipboard, SpotCone, SpotGear, SpotStamp } from "@/components/illustrations";
@@ -630,6 +630,62 @@ export const Badge = ({
     {children}
   </span>
 );
+
+/**
+ * A password field with a reveal toggle.
+ *
+ * On a phone, in a workshop, with oily hands and a password typed one thumb at
+ * a time, "did I get that right?" is the single most common reason a sign-in
+ * fails twice. The toggle answers it without the person clearing the field and
+ * starting again.
+ *
+ * The control lives inside the input rather than beside it so the field keeps
+ * its full width, and the input carries matching right padding so a long
+ * password never runs underneath it.
+ *
+ * `type="button"` is load-bearing: the default inside a form is `submit`, so
+ * without it every reveal would attempt a sign-in.
+ */
+export const PasswordInput = forwardRef<
+  HTMLInputElement,
+  Omit<React.InputHTMLAttributes<HTMLInputElement>, "type">
+>(function PasswordInput({ className, disabled, ...props }, ref) {
+  const [shown, setShown] = useState(false);
+
+  return (
+    <div className="relative">
+      <Input
+        ref={ref}
+        type={shown ? "text" : "password"}
+        disabled={disabled}
+        // Room for the toggle. Without it a long password slides under the
+        // icon and the last characters — the ones being checked — are hidden.
+        className={cn("pr-12", className)}
+        {...props}
+      />
+      <button
+        type="button"
+        onClick={() => setShown((v) => !v)}
+        disabled={disabled}
+        // The label states the action, not the state: a button labelled
+        // "Password shown" reads as a status to a screen reader, where
+        // "Hide password" says what pressing it will do.
+        aria-label={shown ? "Hide password" : "Show password"}
+        aria-controls={props.id}
+        title={shown ? "Hide password" : "Show password"}
+        className={cn(
+          "absolute right-1 top-1/2 grid h-9 w-10 -translate-y-1/2 place-items-center rounded-[var(--r-control)]",
+          "text-[var(--ink-label)] transition-colors duration-150 ease-out",
+          "hover:text-[var(--ink)] focus-visible:text-[var(--ink)] focus-visible:outline-none",
+          "focus-visible:ring-2 focus-visible:ring-[var(--forest)]/35",
+          "disabled:pointer-events-none disabled:opacity-45",
+        )}
+      >
+        {shown ? <EyeOff size={17} /> : <Eye size={17} />}
+      </button>
+    </div>
+  );
+});
 
 export const Field = ({
   label,

@@ -601,6 +601,20 @@ export async function getDashboard() {
   const shopId = shop[0]?.id;
   const warehouseId = warehouse[0]?.id;
 
+  /**
+   * The location ids, or none at all.
+   *
+   * `shopId ?? ""` was the previous guard, and an empty string is not a
+   * harmless placeholder here: both ids are compared against a `uuid` column,
+   * and Postgres rejects `''` as invalid uuid syntax rather than matching
+   * nothing. So a workshop whose locations had not been created yet got a
+   * failed query and a 500 from the dashboard, where the correct answer is a
+   * dashboard reporting no stock.
+   */
+  const locationIds = [shopId, warehouseId].filter(
+    (id): id is string => typeof id === "string" && id.length > 0,
+  );
+
   // Wave 2 — the queries that genuinely need the location ids above.
   //
   // Low stock is not computed here. This function used to carry its own
@@ -611,10 +625,9 @@ export async function getDashboard() {
   // the ids saves it re-looking them up, and skipping the 30-day usage figure
   // saves a query for a column the dashboard does not render.
   const [lowStockRows, stockByLocation] = await Promise.all([
-    getLowStock({
-      locations: { shopId: shopId ?? "", warehouseId: warehouseId ?? "" },
-      withUsage: false,
-    }),
+    shopId && warehouseId
+      ? getLowStock({ locations: { shopId, warehouseId }, withUsage: false })
+      : Promise.resolve([]),
     // Units and their purchase value, per location, in one grouped pass —
     // the alternative was two more round trips for figures that share a row
     // source. Archived parts are excluded so a retired line does not keep
@@ -626,21 +639,23 @@ export async function getDashboard() {
     // costing the units sitting there would need layers this schema has not
     // got. "What the shelves would cost to replace today" is the honest
     // reading of the figure, and it is what the tile says: at cost.
-    db
-      .select({
-        locationId: inventoryBalances.locationId,
-        units: sql<number>`coalesce(sum(${inventoryBalances.quantity}), 0)`,
-        value: sql<string>`coalesce(sum(${inventoryBalances.quantity} * ${parts.purchasePrice}), 0)`,
-      })
-      .from(inventoryBalances)
-      .innerJoin(parts, eq(parts.id, inventoryBalances.partId))
-      .where(
-        and(
-          eq(parts.isArchived, false),
-          inArray(inventoryBalances.locationId, [shopId ?? "", warehouseId ?? ""]),
-        ),
-      )
-      .groupBy(inventoryBalances.locationId),
+    locationIds.length
+      ? db
+          .select({
+            locationId: inventoryBalances.locationId,
+            units: sql<number>`coalesce(sum(${inventoryBalances.quantity}), 0)`,
+            value: sql<string>`coalesce(sum(${inventoryBalances.quantity} * ${parts.purchasePrice}), 0)`,
+          })
+          .from(inventoryBalances)
+          .innerJoin(parts, eq(parts.id, inventoryBalances.partId))
+          .where(
+            and(
+              eq(parts.isArchived, false),
+              inArray(inventoryBalances.locationId, locationIds),
+            ),
+          )
+          .groupBy(inventoryBalances.locationId)
+      : Promise.resolve([] as { locationId: string; units: number; value: string }[]),
   ]);
 
   const stockAt = (locationId: string | undefined) =>

@@ -259,6 +259,35 @@ textarea {
   }
 }
 
+/*
+ * Autofilled fields keep the workshop palette.
+ *
+ * Chrome and Safari paint a pale blue over any field they have filled, and it
+ * cannot be overridden with `background-color` — the UA style wins. The inset
+ * shadow trick is the standard way round it: a 1000px inner shadow in our own
+ * surface colour covers the browser's fill, and `-webkit-text-fill-color`
+ * restores the ink, which is likewise locked.
+ *
+ * This is why the sign-in fields looked blue while every other field on the
+ * site looked cream — nothing in the design system was blue; it was the
+ * browser saying "I filled this in", on the one screen that always gets
+ * autofilled.
+ *
+ * The absurd transition delay keeps the override in place: without it Chrome
+ * re-applies its own background a frame after paint.
+ */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: var(--ink);
+  -webkit-box-shadow: 0 0 0 1000px var(--surface-bright) inset;
+  box-shadow: 0 0 0 1000px var(--surface-bright) inset;
+  caret-color: var(--ink);
+  transition: background-color 100000s ease-in-out 0s;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
