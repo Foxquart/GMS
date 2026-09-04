@@ -7,9 +7,12 @@
  * PGlite is single-process: stop any running server first, or this refuses to
  * open the directory rather than corrupting it.
  */
-import { ensureDbSetup } from "../src/server/db/connection";
+import { describeDbTarget, ensureDbSetup } from "../src/server/db/connection";
 
 const started = Date.now();
+// Printed before the work, not after: the whole point is to be able to stop
+// when this names a database you did not mean to change.
+console.log(`→ target: ${describeDbTarget()}`);
 ensureDbSetup()
   .then(() => {
     console.log(`✔ database migrated and seeded in ${Date.now() - started} ms`);

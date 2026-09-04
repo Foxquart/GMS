@@ -18,6 +18,32 @@ export function isPglite() {
   return usePglite;
 }
 
+/**
+ * A one-line, credential-free description of what `db` is pointed at.
+ *
+ * This exists because the two databases are indistinguishable at the console.
+ * `USE_PGLITE=false` in `.env.local` puts the app on managed Postgres, but a
+ * script started without those files loaded falls through to the `?? "true"`
+ * default above and migrates the embedded copy instead — reporting complete
+ * success while the app's real database is untouched. That failure is silent
+ * and costs an afternoon; printing the target makes it a glance.
+ */
+export function describeDbTarget() {
+  if (usePglite) {
+    const dataDir = process.env.PGLITE_DATA_DIR
+      ? path.resolve(process.env.PGLITE_DATA_DIR)
+      : path.join(process.cwd(), ".pglite");
+    return `embedded PGlite at ${dataDir}`;
+  }
+  // Host and database name only — never the credentials in the URL.
+  try {
+    const url = new URL(process.env.DATABASE_URL!);
+    return `postgres ${url.pathname.replace(/^\//, "")} on ${url.host}`;
+  } catch {
+    return "postgres (DATABASE_URL could not be parsed)";
+  }
+}
+
 // Global singleton so Next.js dev/hot-reload reuses the same embedded DB.
 const globalForDb = globalThis as unknown as {
   db?: any;

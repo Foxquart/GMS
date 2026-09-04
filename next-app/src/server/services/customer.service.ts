@@ -49,18 +49,32 @@ export async function listCustomers(opts: { q?: string }) {
 
 export async function createCustomer(input: {
   name: string;
-  phone: string;
+  /** Optional — see the column comment. `null` is "not on file". */
+  phone?: string | null;
   address?: string;
   notes?: string;
 }) {
-  const [row] = await db.insert(customers).values(input).returning();
+  const [row] = await db
+    .insert(customers)
+    .values({ ...input, phone: normalizePhone(input.phone) })
+    .returning();
   return row;
+}
+
+/**
+ * One representation for "no phone": NULL. A blank string would survive every
+ * `if (customer.phone)` check in the UI while dialling nothing.
+ */
+function normalizePhone(phone?: string | null) {
+  const trimmed = (phone ?? "").trim();
+  return trimmed.length ? trimmed : null;
 }
 
 export async function updateCustomer(
   id: string,
-  input: { name?: string; phone?: string; address?: string; notes?: string },
+  input: { name?: string; phone?: string | null; address?: string; notes?: string },
 ) {
+  if (input.phone !== undefined) input = { ...input, phone: normalizePhone(input.phone) };
   const [row] = await db
     .update(customers)
     .set({ ...input, updatedAt: new Date() })

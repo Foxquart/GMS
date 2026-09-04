@@ -78,7 +78,13 @@ export const users = pgTable("users", {
 export const customers = pgTable("customers", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", { length: 255 }).notNull(),
-  phone: varchar("phone", { length: 20 }).notNull(),
+  /**
+   * Optional. A walk-in who pays cash and leaves is a real customer, and
+   * forcing a phone number here only produced junk ones ("0000000000") that
+   * then fed the call and WhatsApp buttons. Null means "not on file"; every
+   * read path has to handle it rather than assume a string.
+   */
+  phone: varchar("phone", { length: 20 }),
   address: text("address"),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

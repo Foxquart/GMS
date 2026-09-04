@@ -38,7 +38,7 @@ type InvoiceRow = {
   createdAt: string;
   customerId: string;
   customerName: string;
-  customerPhone: string;
+  customerPhone: string | null;
 };
 
 const FILTERS = [
