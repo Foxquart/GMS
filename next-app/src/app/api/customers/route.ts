@@ -19,12 +19,14 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const name = String(body?.name ?? "").trim();
     const phone = String(body?.phone ?? "").trim();
-    if (!name || !phone) {
-      throw new ApiError(400, "Name and phone are required");
+    // Phone is optional: a cash walk-in is a real customer. The name is the
+    // only thing a record is useless without.
+    if (!name) {
+      throw new ApiError(400, "Name is required");
     }
     const customer = await createCustomer({
       name,
-      phone,
+      phone: phone || null,
       address: body?.address || undefined,
       notes: body?.notes || undefined,
     });

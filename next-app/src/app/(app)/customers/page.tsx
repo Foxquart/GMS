@@ -37,7 +37,7 @@ import { cn } from "@/lib/cn";
 type CustomerRow = {
   id: string;
   name: string;
-  phone: string;
+  phone: string | null;
   address: string | null;
   totalJobs: number | string;
   outstanding: string | number;
@@ -80,8 +80,13 @@ function RegistryRow({ customer }: { customer: CustomerRow }) {
 
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-extrabold text-[var(--ink)]">{customer.name}</p>
-          <p className="tabular mt-0.5 truncate text-xs font-semibold text-[var(--ink-muted)]">
-            {customer.phone}
+          <p
+            className={cn(
+              "mt-0.5 truncate text-xs font-semibold",
+              customer.phone ? "tabular text-[var(--ink-muted)]" : "text-[var(--ink-label)]",
+            )}
+          >
+            {customer.phone || "No phone on file"}
           </p>
         </div>
 
@@ -321,7 +326,10 @@ export default function CustomersPage() {
               autoComplete="name"
             />
           </Field>
-          <Field label="Phone number *" hint="Used for calls, WhatsApp and invoice sharing.">
+          <Field
+            label="Phone number (optional)"
+            hint="Without one, this customer can't be called or sent invoices on WhatsApp."
+          >
             <Input
               value={phone}
               onChange={(e) => {
@@ -366,7 +374,7 @@ export default function CustomersPage() {
             size="lg"
             className="w-full"
             onClick={() => create.mutate()}
-            disabled={!name || !phone || create.isPending}
+            disabled={!name.trim() || create.isPending}
           >
             {create.isPending ? "Saving…" : "Create customer"}
           </Button>

@@ -50,6 +50,13 @@
       "when": 1788177160226,
       "tag": "0006_stock_movement_unit_cost",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788436158919,
+      "tag": "0007_customer_phone_optional",
+      "breakpoints": true
     }
   ]
 }

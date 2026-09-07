@@ -614,7 +614,7 @@ export default function DashboardPage() {
                     {c.customerName}
                   </p>
                   <p className="truncate text-xs font-semibold text-[var(--ink-muted)]">
-                    {c.customerPhone}
+                    {c.customerPhone || "No phone on file"}
                   </p>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">

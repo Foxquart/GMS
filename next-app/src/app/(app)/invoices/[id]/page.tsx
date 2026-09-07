@@ -137,13 +137,20 @@ export default function InvoiceDetailPage() {
   });
 
   const shareWhatsApp = async () => {
+    // Checked before the share link is minted, not after — phone is optional
+    // on a customer, and `wa.me/` with no number lands on WhatsApp's error
+    // page. Burning a share token to get there would be worse than useless.
+    const digits = (customer?.phone ?? "").replace(/[^0-9]/g, "");
+    if (!digits) {
+      toast.error("No phone number on file for this customer");
+      return;
+    }
     try {
       const { url } = await share.mutateAsync();
       if (!url) {
         toast.error("This invoice has been cancelled");
         return;
       }
-      const digits = (customer?.phone ?? "").replace(/[^0-9]/g, "");
       const phone = digits.length === 10 ? `91${digits}` : digits;
       const message = `Hello ${customer?.name ?? ""}, your invoice ${invoice.invoiceNumber} for ${currency(invoice.total)} is ready. You can view or download it here: ${url}`;
       const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
@@ -331,7 +338,11 @@ export default function InvoiceDetailPage() {
                 className="flex flex-col items-center gap-0.5 transition-[color] duration-150 ease-out hover:text-[var(--terracotta-hover)]"
               >
                 <span className="max-w-full truncate">{customer.name}</span>
-                <span className="tile-label tabular text-[var(--ink-label)]">{customer.phone}</span>
+                {customer.phone && (
+                  <span className="tile-label tabular text-[var(--ink-label)]">
+                    {customer.phone}
+                  </span>
+                )}
               </Link>
             ) : (
               "—"

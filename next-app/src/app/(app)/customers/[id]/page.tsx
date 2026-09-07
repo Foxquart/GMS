@@ -184,7 +184,12 @@ export default function CustomerDetailPage() {
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
   )[0];
 
+  // Phone is optional on a customer record, so both contact actions are
+  // conditional. A `tel:` with nothing after it opens the dialler empty, and
+  // `wa.me/` with no number opens WhatsApp's own error page — offering either
+  // is worse than not offering it.
   const phoneDigits = (customer.phone ?? "").replace(/[^0-9]/g, "");
+  const canContact = phoneDigits.length > 0;
   const formattedWaPhone = phoneDigits.length === 10 ? `91${phoneDigits}` : phoneDigits;
   const waHref = `https://wa.me/${formattedWaPhone}?text=${encodeURIComponent(
     `Hello ${customer.name}, regarding your service at our workshop:`,
@@ -196,7 +201,7 @@ export default function CustomerDetailPage() {
         <HeroPanel
           tone="forest"
           title={customer.name}
-          subtitle={customer.phone}
+          subtitle={customer.phone ?? "No phone on file"}
           eyebrow="Customer"
           leading={
             <CircleButton onClick={goBack} aria-label="Back">
@@ -204,24 +209,26 @@ export default function CustomerDetailPage() {
             </CircleButton>
           }
           trailing={
-            <>
-              <CircleButton
-                onClick={() => {
-                  window.location.href = `tel:${customer.phone}`;
-                }}
-                aria-label={`Call ${customer.name}`}
-                title="Call"
-              >
-                <Phone size={18} />
-              </CircleButton>
-              <CircleButton
-                onClick={() => window.open(waHref, "_blank", "noopener,noreferrer")}
-                aria-label={`Message ${customer.name} on WhatsApp`}
-                title="WhatsApp"
-              >
-                <MessageCircle size={18} />
-              </CircleButton>
-            </>
+            canContact ? (
+              <>
+                <CircleButton
+                  onClick={() => {
+                    window.location.href = `tel:${customer.phone}`;
+                  }}
+                  aria-label={`Call ${customer.name}`}
+                  title="Call"
+                >
+                  <Phone size={18} />
+                </CircleButton>
+                <CircleButton
+                  onClick={() => window.open(waHref, "_blank", "noopener,noreferrer")}
+                  aria-label={`Message ${customer.name} on WhatsApp`}
+                  title="WhatsApp"
+                >
+                  <MessageCircle size={18} />
+                </CircleButton>
+              </>
+            ) : undefined
           }
         >
           <div className="mt-5 flex flex-wrap items-center gap-3">
@@ -249,7 +256,13 @@ export default function CustomerDetailPage() {
         shown={heroGone}
         onBack={goBack}
         title={customer.name}
-        meta={<span className="tabular">{customer.phone}</span>}
+        meta={
+          customer.phone ? (
+            <span className="tabular">{customer.phone}</span>
+          ) : (
+            <span>No phone on file</span>
+          )
+        }
         trailing={
           onCredit ? (
             <div className="shrink-0 text-right">

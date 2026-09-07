@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Wrench } from "lucide-react";
 import { ApiClientError, api, errorMessage, errorReference } from "@/lib/api";
-import { Button, Input, Field } from "@/components/ui";
+import { Button, Input, Field, PasswordInput } from "@/components/ui";
 import { SpotCone, SpotTools } from "@/components/illustrations";
 
 /**
@@ -180,9 +180,8 @@ export default function LoginPage() {
             </Field>
 
             <Field label="Password">
-              <Input
+              <PasswordInput
                 id="login-password"
-                type="password"
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);

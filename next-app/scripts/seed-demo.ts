@@ -13,7 +13,7 @@
  * two processes end up writing the same data directory.
  */
 import { eq } from "drizzle-orm";
-import { db, ensureDbSetup } from "../src/server/db/connection";
+import { db, describeDbTarget, ensureDbSetup } from "../src/server/db/connection";
 import * as schema from "../src/server/db/schema";
 
 const RESET = process.argv.includes("--reset");
@@ -107,6 +107,9 @@ async function resetBusinessData() {
 
 async function main() {
   const t0 = Date.now();
+  // `--reset` wipes business data before seeding, so which database this is
+  // has to be visible before the work, not inferred from the results after.
+  console.log(`  target               ${describeDbTarget()}`);
   if (NO_MIGRATE) {
     console.log(`  setup                skipped (--no-migrate)`);
   } else {
@@ -272,7 +275,10 @@ async function main() {
     db.insert(schema.customers).values(
       Array.from({ length: 60 * SCALE }, () => ({
         name: `${pick(FIRST)} ${pick(LAST)}`,
-        phone: `9${int(100000000, 999999999)}`,
+        // Phone is optional, so some of the demo customers have none — that is
+        // the state the call/WhatsApp buttons and the "No phone on file" copy
+        // exist for, and it should be visible without hand-editing a row.
+        phone: rnd() < 0.12 ? null : `9${int(100000000, 999999999)}`,
         address: `${int(1, 400)}, ${pick(["Gandhi Nagar","Jayanagar","Anna Nagar","Kothrud","Salt Lake","Banjara Hills"])}`,
         notes: rnd() < 0.25 ? "Regular customer — prefers evening pickup" : null,
         createdAt: pastDate(),
@@ -290,7 +296,17 @@ async function main() {
           customerId: c.id,
           vehicleType: type,
           vehicleName: name,
-          registrationNumber: `${pick(["KA","MH","TN","DL","WB","TS"])}${int(10, 49)}${pick(["AB","CJ","MN","XY","PQ"])}${int(1000, 9999)}`,
+          // Spaced, and mostly TR — this is a Tripura workshop, so its demo
+          // data should look like what it actually sees, with a minority of
+          // neighbouring-state and out-of-region vehicles. The spacing matches
+          // what the registration field now writes, so seeded and typed
+          // numbers dedupe against each other.
+          registrationNumber: [
+            rnd() < 0.7 ? "TR" : pick(["AS", "MZ", "ML", "MN", "NL", "WB", "KA", "MH"]),
+            String(int(1, 12)).padStart(2, "0"),
+            pick(["AB", "CJ", "MN", "XY", "PQ", "A", "BCD"]),
+            int(1000, 9999),
+          ].join(" "),
         };
       }),
     );

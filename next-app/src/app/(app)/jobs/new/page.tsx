@@ -17,6 +17,7 @@ import {
   CircleButton,
   SectionHeader,
 } from "@/components/ui";
+import { RegistrationInput } from "@/components/registration-input";
 import { AnimatedDropdown } from "@/components/animated-dropdown";
 import { SearchSelect } from "@/components/search-select";
 import { useGoBack } from "@/hooks/use-go-back";
@@ -164,7 +165,7 @@ function NewJobForm() {
     mutationFn: () =>
       api("/api/customers", {
         method: "POST",
-        body: JSON.stringify({ name: customerName, phone: customerPhone }),
+        body: JSON.stringify({ name: customerName, phone: customerPhone || null }),
       }),
     onSuccess: (c: any) => {
       selectCustomer(c.id, c);
@@ -297,7 +298,7 @@ function NewJobForm() {
                 }}
               />
             </Field>
-            <Field label="Phone">
+            <Field label="Phone (optional)">
               <Input
                 placeholder="e.g. 98300 12345"
                 value={customerPhone}
@@ -323,7 +324,7 @@ function NewJobForm() {
                 type="button"
                 size="sm"
                 onClick={() => createCustomer.mutate()}
-                disabled={!customerName || !customerPhone || createCustomer.isPending}
+                disabled={!customerName.trim() || createCustomer.isPending}
               >
                 {createCustomer.isPending ? "Saving…" : "Save customer"}
               </Button>
@@ -363,7 +364,14 @@ function NewJobForm() {
               return {
                 id: c.id,
                 label: c.name,
-                sublabel: `${c.phone}${visits > 0 ? ` · ${visits} ${visits === 1 ? "job" : "jobs"}` : ""}`,
+                // `c.phone ?? ""` and not a bare interpolation: phone is
+                // nullable, and a template literal renders null as "null".
+                sublabel: [
+                  c.phone ?? "",
+                  visits > 0 ? `${visits} ${visits === 1 ? "job" : "jobs"}` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · "),
                 icon: <User size={15} />,
                 meta:
                   owed > 0 ? (
@@ -482,10 +490,9 @@ function NewJobForm() {
                 : undefined
             }
           >
-            <Input
+            <RegistrationInput
               value={registrationNumber}
-              onChange={(e) => editVehicle({ registrationNumber: e.target.value })}
-              placeholder="e.g. WB 12 AB 3456"
+              onChange={(v) => editVehicle({ registrationNumber: v })}
             />
           </Field>
         </div>

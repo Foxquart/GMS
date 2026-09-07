@@ -49,6 +49,7 @@ import {
   type Tone,
   RecordBar,
 } from "@/components/ui";
+import { RegistrationInput } from "@/components/registration-input";
 import { SpotOilCan, SpotTools, VEHICLE_SPOT } from "@/components/illustrations";
 import {
   currency,
@@ -853,10 +854,12 @@ export default function JobDetailPage() {
             label="Registration number"
             hint="A new registration number is treated as a different vehicle."
           >
-            <Input
+            <RegistrationInput
               value={editRegistration}
-              onChange={onEditField(setEditRegistration)}
-              placeholder="e.g. WB 12 AB 3456"
+              onChange={(v) => {
+                setEditRegistration(v);
+                setEditError(null);
+              }}
             />
           </Field>
           {editError != null && (

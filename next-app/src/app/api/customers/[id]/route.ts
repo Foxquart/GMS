@@ -21,7 +21,10 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     return ok(
       await updateCustomer(id, {
         name: body?.name !== undefined ? String(body.name) : undefined,
-        phone: body?.phone !== undefined ? String(body.phone) : undefined,
+        // `?? ""` rather than a bare String(): a JSON null would otherwise be
+        // stored as the four-character string "null", which passes every
+        // truthiness check the UI makes before offering to dial it.
+        phone: body?.phone !== undefined ? String(body.phone ?? "") : undefined,
         address: body?.address !== undefined ? String(body.address ?? "") : undefined,
         notes: body?.notes !== undefined ? String(body.notes ?? "") : undefined,
       }),
