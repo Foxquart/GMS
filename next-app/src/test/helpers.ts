@@ -32,6 +32,12 @@ export async function resetBusinessData() {
   ]) {
     await db.execute(`delete from ${table}`);
   }
+  try {
+    await db.execute(`ALTER SEQUENCE job_number_seq RESTART WITH 1`);
+    await db.execute(`ALTER SEQUENCE invoice_number_seq RESTART WITH 1`);
+  } catch {
+    // sequences may not be created in early setup tests
+  }
 }
 
 // Reusable seed: a customer plus a part with N units in SHOP stock.

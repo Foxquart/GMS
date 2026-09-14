@@ -13,7 +13,7 @@ import {
   inventoryBalances,
   vehicles,
 } from "@/server/db/schema";
-import type { DateRange } from "@/lib/date-range";
+import { resolvePreset, type DateRange } from "@/lib/date-range";
 import { PAYMENT_METHODS } from "@/lib/format";
 import { OUTSTANDING_INVOICE_STATUSES } from "./invoice.service";
 import { getLastTransfer, getLowStock } from "./inventory.service";
@@ -485,6 +485,8 @@ export async function getDashboard() {
     recentInvoices,
     [movementTotals],
     lastTransfer,
+    partsUsage,
+    outstandingCustomers,
   ] = await Promise.all([
     // Cancelled invoices are excluded here exactly as they are in getReport.
     // Without it the dashboard's "Billed today" and the daily figure on
@@ -596,6 +598,8 @@ export async function getDashboard() {
       })
       .from(stockMovements),
     getLastTransfer(),
+    getPartsUsage(resolvePreset("today"), { limit: 4 }),
+    getCustomerOutstanding({ limit: 5 }),
   ]);
 
   const shopId = shop[0]?.id;
@@ -721,5 +725,9 @@ export async function getDashboard() {
     activeJobs: activeJobRows,
     recentInvoices,
     lastTransfer,
+    partsUsage,
+    partsUsageTop4: partsUsage,
+    outstandingCustomers,
+    outstandingTop4: outstandingCustomers,
   };
 }

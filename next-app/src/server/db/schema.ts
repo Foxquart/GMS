@@ -101,11 +101,14 @@ export const vehicles = pgTable("vehicles", {
   vehicleType: vehicleTypeEnum("vehicle_type").notNull().default("OTHER"),
   vehicleName: varchar("vehicle_name", { length: 255 }),
   registrationNumber: varchar("registration_number", { length: 20 }),
+  registrationNumberNormalized: varchar("registration_number_normalized", { length: 20 }),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("idx_vehicles_customer_id").on(table.customerId),
+  index("idx_vehicles_reg_normalized").on(table.registrationNumberNormalized),
+  index("idx_vehicles_reg").on(table.registrationNumber),
 ]);
 
 // ─── Categories ──────────────────────────────────────────────────────
@@ -167,7 +170,9 @@ export const suppliers = pgTable("suppliers", {
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_suppliers_name").on(table.name),
+]);
 
 // ─── Parts ───────────────────────────────────────────────────────────
 export const parts = pgTable("parts", {
@@ -202,6 +207,7 @@ export const parts = pgTable("parts", {
 }, (table) => [
   index("idx_parts_name").on(table.name),
   index("idx_parts_part_number").on(table.partNumber),
+  index("idx_parts_barcode").on(table.barcode),
   index("idx_parts_category_id").on(table.categoryId),
   index("idx_parts_sub_category_id").on(table.subCategoryId),
 ]);
@@ -262,6 +268,7 @@ export const stockMovements = pgTable("stock_movements", {
   // window; the created_at index alone cannot discriminate the type, so each
   // one scanned rows it would immediately discard.
   index("idx_stock_movements_type_created_at").on(table.movementType, table.createdAt),
+  index("idx_movements_part_created").on(table.partId, table.createdAt),
 ]);
 
 // ─── Stock Transfers ─────────────────────────────────────────────────
