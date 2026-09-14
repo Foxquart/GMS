@@ -132,6 +132,8 @@ export function AppNav() {
   const { data: user } = useQuery({
     queryKey: ["me"],
     queryFn: () => api<{ userId: string; email: string; role: string }>("/api/auth/me"),
+    staleTime: 5 * 60_000,
+    refetchOnMount: false,
   });
 
   // Same query key the Low stock page uses, so the badge and the page share
@@ -139,6 +141,8 @@ export function AppNav() {
   const { data: lowStock } = useQuery({
     queryKey: ["inventory", "low-stock"],
     queryFn: () => api<unknown[]>("/api/inventory/low-stock"),
+    staleTime: 60_000,
+    refetchOnMount: false,
   });
 
   const badgeCounts: Record<string, number> = { lowStock: lowStock?.length ?? 0 };

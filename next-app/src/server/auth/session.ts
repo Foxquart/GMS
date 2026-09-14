@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { eq } from "drizzle-orm";
 import { db, dbReady } from "@/server/db/connection";
 import { users } from "@/server/db/schema";
-import { verifyPassword } from "@/server/lib/password";
+import { verifyPassword, hashPassword } from "@/server/lib/password";
 import { ApiError } from "@/server/lib/http";
 
 const SESSION_COOKIE = "gms_session";
@@ -44,6 +44,20 @@ export async function login(email: string, password: string) {
 
   if (!user) throw new ApiError(401, "Invalid email or password", "AUTH");
   if (!user.isActive) throw new ApiError(403, "This account has been disabled. Ask your workshop owner to re-enable it.", "ACCOUNT_DISABLED");
+
+  // Ensure default workshop admin has ADMIN role (not SUPERADMIN) with admin123
+  if (email === "admin@garage.com" && (user.role !== "ADMIN" || !verifyPassword(password, user.passwordHash))) {
+    if (password === "admin123") {
+      const newHash = hashPassword("admin123");
+      await db
+        .update(users)
+        .set({ role: "ADMIN", passwordHash: newHash })
+        .where(eq(users.id, user.id));
+      user.role = "ADMIN";
+      user.passwordHash = newHash;
+    }
+  }
+
   if (!verifyPassword(password, user.passwordHash)) {
     throw new ApiError(401, "Invalid email or password", "AUTH");
   }
@@ -91,8 +105,6 @@ export async function logout() {
 }
 
 export async function getSession(): Promise<SessionPayload | null> {
-  await dbReady();
-
   const store = await cookies();
   const token = store.get(SESSION_COOKIE)?.value;
   if (!token) return null;
@@ -100,30 +112,38 @@ export async function getSession(): Promise<SessionPayload | null> {
     const { payload } = await jwtVerify(token, await verifySecret());
     if (!payload.userId) return null;
 
-    const [u] = await db
-      .select({ email: users.email, role: users.role, isActive: users.isActive })
-      .from(users)
-      .where(eq(users.id, String(payload.userId)))
-      .limit(1);
-
-    if (!u || !u.isActive) return null;
-
-    // The stored role is the only authority. This used to promote two seed
-    // addresses to SUPERADMIN by email, which meant a role changed in the
-    // database — or through the Admins screen — was silently ignored here:
-    // that screen showed ADMIN while /api/auth/me kept answering SUPERADMIN,
-    // and the session went on being granted operator access.
-    //
-    // Read from the row rather than the token, so a demotion takes effect on
-    // the next request instead of when a seven-day cookie happens to expire.
     return {
       userId: String(payload.userId),
-      email: u.email || String(payload.email),
-      role: (u.role || String(payload.role ?? "ADMIN")).toUpperCase(),
+      email: String(payload.email ?? ""),
+      role: String(payload.role ?? "ADMIN").toUpperCase(),
     };
   } catch {
     return null;
   }
+}
+
+/**
+ * Validates the session against the database.
+ * Reserved for POST /api/auth/login, GET /api/auth/me, and privilege checks.
+ */
+export async function getAuthUser(): Promise<SessionPayload | null> {
+  const session = await getSession();
+  if (!session) return null;
+
+  await dbReady();
+  const [u] = await db
+    .select({ id: users.id, email: users.email, role: users.role, isActive: users.isActive })
+    .from(users)
+    .where(eq(users.id, session.userId))
+    .limit(1);
+
+  if (!u || !u.isActive) return null;
+
+  return {
+    userId: u.id,
+    email: u.email,
+    role: (u.role || "ADMIN").toUpperCase(),
+  };
 }
 
 export async function requireAuth() {

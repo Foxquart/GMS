@@ -635,6 +635,15 @@ async function main() {
     return rows.length;
   });
 
+  try {
+    await db.execute(`
+      SELECT setval('job_number_seq', COALESCE((SELECT MAX(CAST(SUBSTRING(job_number FROM '[0-9]+$') AS integer)) FROM jobs), 0) + 1, false);
+      SELECT setval('invoice_number_seq', COALESCE((SELECT MAX(CAST(SUBSTRING(invoice_number FROM '[0-9]+$') AS integer)) FROM invoices), 0) + 1, false);
+    `);
+  } catch {
+    // non-fatal if sequences are not present
+  }
+
   console.log(`\n  total                ${Date.now() - t0} ms\n`);
 
   const tables = ["categories","suppliers","parts","inventory_balances","stock_movements","customers","vehicles","jobs","job_parts","job_labour","invoices","invoice_items","payments","audit_logs"];

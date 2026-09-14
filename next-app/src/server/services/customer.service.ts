@@ -6,7 +6,7 @@ import { OUTSTANDING_INVOICE_STATUSES } from "./invoice.service";
 
 const CUSTOMER_VEHICLE_TYPE_VALUES = ["CAR", "BIKE", "SCOOTY", "AUTO", "OTHER"] as const;
 
-export async function listCustomers(opts: { q?: string }) {
+export async function listCustomers(opts: { q?: string; limit?: number }) {
   const conditions = [];
   if (opts.q) {
     const like = `%${opts.q.toLowerCase()}%`;
@@ -18,6 +18,27 @@ export async function listCustomers(opts: { q?: string }) {
     );
   }
 
+  const jobsAgg = db
+    .select({
+      customerId: jobs.customerId,
+      totalJobs: sql<number>`count(*)::int`.as("total_jobs"),
+    })
+    .from(jobs)
+    .groupBy(jobs.customerId)
+    .as("jobs_agg");
+
+  const invAgg = db
+    .select({
+      customerId: invoices.customerId,
+      outstanding: sql<string>`coalesce(sum(${invoices.dueAmount}), 0)`.as("outstanding"),
+    })
+    .from(invoices)
+    .where(inArray(invoices.status, [...OUTSTANDING_INVOICE_STATUSES]))
+    .groupBy(invoices.customerId)
+    .as("inv_agg");
+
+  const limit = opts.limit ?? 50;
+
   const rows = await db
     .select({
       id: customers.id,
@@ -25,25 +46,16 @@ export async function listCustomers(opts: { q?: string }) {
       phone: customers.phone,
       address: customers.address,
       createdAt: customers.createdAt,
-      // "customers"."id" is spelled out because this query has no join, and
-      // drizzle drops the table prefix in that case — the correlation then
-      // bound to the subquery's own table and every customer read 0 jobs /
-      // 0 outstanding, even while their detail page showed money owed.
-      totalJobs: sql<number>`(
-        select count(*) from ${jobs} j where j.customer_id = "customers"."id"
-      )`,
-      outstanding: sql<string>`coalesce((
-        select sum(i.due_amount) from ${invoices} i
-        where i.customer_id = "customers"."id"
-          and i.status in (${sql.join(
-            OUTSTANDING_INVOICE_STATUSES.map((v) => sql`${v}`),
-            sql`, `,
-          )})
-      ), 0)`,
+      totalJobs: sql<number>`coalesce(${jobsAgg.totalJobs}, 0)::int`,
+      outstanding: sql<string>`coalesce(${invAgg.outstanding}, '0')`,
     })
     .from(customers)
+    .leftJoin(jobsAgg, eq(jobsAgg.customerId, customers.id))
+    .leftJoin(invAgg, eq(invAgg.customerId, customers.id))
     .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(customers.name);
+    .orderBy(customers.name)
+    .limit(limit);
+
   return rows;
 }
 
@@ -120,7 +132,8 @@ export async function getCustomerDetail(id: string) {
       .select()
       .from(invoices)
       .where(eq(invoices.customerId, id))
-      .orderBy(desc(invoices.createdAt)),
+      .orderBy(desc(invoices.createdAt))
+      .limit(50),
     customerBillingStats(id),
   ]);
 
@@ -144,19 +157,29 @@ export async function createVehicle(input: {
   if (!CUSTOMER_VEHICLE_TYPE_VALUES.includes(input.vehicleType as any)) {
     throw new ApiError(400, "Invalid vehicle type");
   }
-  const [row] = await db.insert(vehicles).values(input as any).returning();
+  const regNorm = input.registrationNumber
+    ? input.registrationNumber.toLowerCase().replace(/[\s-]/g, "")
+    : null;
+  const [row] = await db
+    .insert(vehicles)
+    .values({
+      ...input,
+      registrationNumberNormalized: regNorm || null,
+    } as any)
+    .returning();
   return row;
 }
 
-export async function listVehicles(customerId?: string) {
+export async function listVehicles(customerId?: string, limit = 100) {
   if (customerId) {
     return db
       .select()
       .from(vehicles)
       .where(eq(vehicles.customerId, customerId))
-      .orderBy(desc(vehicles.createdAt));
+      .orderBy(desc(vehicles.createdAt))
+      .limit(limit);
   }
-  return db.select().from(vehicles).orderBy(desc(vehicles.createdAt));
+  return db.select().from(vehicles).orderBy(desc(vehicles.createdAt)).limit(limit);
 }
 
 /**
@@ -174,37 +197,40 @@ export async function customerBillingStats(id: string) {
     ne(invoices.status, "CANCELLED"),
   );
 
-  const [billedRow] = await db
-    .select({
-      billed: sql<string>`coalesce(sum(${invoices.total}), 0)`,
-      outstanding: sql<string>`coalesce(sum(${invoices.dueAmount}), 0)`,
-      invoiceCount: sql<number>`count(*)`,
-    })
-    .from(invoices)
-    .where(notCancelled);
-
-  // One row per payment, joined 1:1 to its invoice — no fan-out.
-  const [paidRow] = await db
-    .select({ paid: sql<string>`coalesce(sum(${payments.amount}), 0)` })
-    .from(payments)
-    .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
-    .where(notCancelled);
-
-  const [jobRow] = await db
-    .select({ jobCount: sql<number>`count(*)` })
-    .from(jobs)
-    .where(eq(jobs.customerId, id));
-
-  const [unpaidRow] = await db
-    .select({ unpaidInvoices: sql<number>`count(*)` })
-    .from(invoices)
-    .where(
-      and(
-        eq(invoices.customerId, id),
-        inArray(invoices.status, [...OUTSTANDING_INVOICE_STATUSES]),
-        sql`${invoices.dueAmount} > 0`,
+  const [
+    [billedRow],
+    [paidRow],
+    [jobRow],
+    [unpaidRow],
+  ] = await Promise.all([
+    db
+      .select({
+        billed: sql<string>`coalesce(sum(${invoices.total}), 0)`,
+        outstanding: sql<string>`coalesce(sum(${invoices.dueAmount}), 0)`,
+        invoiceCount: sql<number>`count(*)`,
+      })
+      .from(invoices)
+      .where(notCancelled),
+    db
+      .select({ paid: sql<string>`coalesce(sum(${payments.amount}), 0)` })
+      .from(payments)
+      .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
+      .where(notCancelled),
+    db
+      .select({ jobCount: sql<number>`count(*)` })
+      .from(jobs)
+      .where(eq(jobs.customerId, id)),
+    db
+      .select({ unpaidInvoices: sql<number>`count(*)` })
+      .from(invoices)
+      .where(
+        and(
+          eq(invoices.customerId, id),
+          inArray(invoices.status, [...OUTSTANDING_INVOICE_STATUSES]),
+          sql`${invoices.dueAmount} > 0`,
+        ),
       ),
-    );
+  ]);
 
   return {
     billed: Number(billedRow?.billed ?? 0),

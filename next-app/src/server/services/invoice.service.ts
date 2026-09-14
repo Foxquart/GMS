@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/server/db/connection";
 import {
   customers as customersTable,
@@ -33,14 +33,8 @@ async function nextInvoiceNumberTx(tx: any) {
   const prefix = setting?.invoicePrefix ?? "INV";
   const year = new Date().getFullYear();
   const searchPrefix = `${prefix}-${year}-`;
-  const rows = await tx
-    .select({ invoiceNumber: invoices.invoiceNumber })
-    .from(invoices)
-    .where(sql`${invoices.invoiceNumber} like ${searchPrefix + "%"}`)
-    .orderBy(desc(invoices.invoiceNumber))
-    .limit(1);
-  const last = rows[0]?.invoiceNumber;
-  const seq = last ? parseInt(last.split("-").pop() ?? "0", 10) + 1 : 1;
+  const res: any = await tx.execute(sql`SELECT nextval('invoice_number_seq')::text AS seq`);
+  const seq = Number((res.rows ?? res)[0]?.seq ?? 1);
   return `${searchPrefix}${String(seq).padStart(6, "0")}`;
 }
 
@@ -133,17 +127,72 @@ export async function completeJob(input: {
       .from(jobLabour)
       .where(eq(jobLabour.jobId, job.id));
 
-    // Deduct shop stock for each part, creating JOB_USAGE movements.
-    for (const jp of partRows) {
-      await changeBalance(
-        tx,
-        jp.partId,
-        shop.id,
-        -jp.quantity,
-        "JOB_USAGE",
-        { type: "JOB", id: job.id },
-        `JOB-${job.jobNumber}`,
-      );
+    // Deduct shop stock for all parts in one batched, locked pass.
+    if (partRows.length > 0) {
+      const partDeltas = new Map<string, number>();
+      for (const jp of partRows) {
+        partDeltas.set(jp.partId, (partDeltas.get(jp.partId) ?? 0) + jp.quantity);
+      }
+      const partIds = Array.from(partDeltas.keys());
+
+      const existingBalances = await tx
+        .select()
+        .from(inventoryBalances)
+        .where(
+          and(
+            inArray(inventoryBalances.partId, partIds),
+            eq(inventoryBalances.locationId, shop.id),
+          ),
+        )
+        .for("update");
+
+      const balanceMap = new Map<string, typeof inventoryBalances.$inferSelect>();
+      for (const b of existingBalances) {
+        balanceMap.set(b.partId, b);
+      }
+
+      for (const [partId, neededQty] of partDeltas.entries()) {
+        const existing = balanceMap.get(partId);
+        const currentQty = existing?.quantity ?? 0;
+        if (currentQty < neededQty) {
+          throw new ApiError(
+            409,
+            "Not enough Shop stock to complete this job. Move stock from Warehouse or review the parts.",
+            "INSUFFICIENT_STOCK",
+          );
+        }
+      }
+
+      const partPriceRows = await tx
+        .select({ id: parts.id, purchasePrice: parts.purchasePrice })
+        .from(parts)
+        .where(inArray(parts.id, partIds));
+      const priceMap = new Map<string, string>();
+      for (const p of partPriceRows) {
+        priceMap.set(p.id, p.purchasePrice);
+      }
+
+      for (const [partId, neededQty] of partDeltas.entries()) {
+        const existing = balanceMap.get(partId)!;
+        await tx
+          .update(inventoryBalances)
+          .set({ quantity: existing.quantity - neededQty, updatedAt: new Date() })
+          .where(eq(inventoryBalances.id, existing.id));
+      }
+
+      const movementsToInsert = partRows.map((jp: any) => ({
+        partId: jp.partId,
+        locationId: shop.id,
+        movementType: "JOB_USAGE" as const,
+        quantity: -jp.quantity,
+        unitCost: priceMap.get(jp.partId) ?? "0",
+        referenceType: "JOB",
+        referenceId: job.id,
+        notes: `JOB-${job.jobNumber}`,
+      }));
+      if (movementsToInsert.length > 0) {
+        await tx.insert(stockMovements).values(movementsToInsert);
+      }
     }
 
     const subtotal =
@@ -169,25 +218,26 @@ export async function completeJob(input: {
       })
       .returning();
 
-    for (const jp of partRows) {
-      await tx.insert(invoiceItems).values({
+    const itemsToInsert = [
+      ...partRows.map((jp: any) => ({
         invoiceId: invoice.id,
         itemType: "part",
         description: jp.partName,
         quantity: String(jp.quantity),
         unitPrice: String(Number(jp.unitPrice)),
         totalPrice: String(Number(jp.totalPrice)),
-      });
-    }
-    for (const lb of labourRows) {
-      await tx.insert(invoiceItems).values({
+      })),
+      ...labourRows.map((lb: any) => ({
         invoiceId: invoice.id,
         itemType: "labour",
         description: lb.description,
         quantity: "1",
         unitPrice: String(Number(lb.amount)),
         totalPrice: String(Number(lb.amount)),
-      });
+      })),
+    ];
+    if (itemsToInsert.length > 0) {
+      await tx.insert(invoiceItems).values(itemsToInsert);
     }
 
     await tx
@@ -285,39 +335,48 @@ export async function getInvoice(id: string) {
     .limit(1);
   if (!invoice) throw new ApiError(404, "Invoice not found", "NOT_FOUND");
 
-  const [customer] = await db
-    .select()
-    .from(customersTable)
-    .where(eq(customersTable.id, invoice.customerId))
-    .limit(1);
-  const [vehicle] = invoice.vehicleId
-    ? await db
-        .select()
-        .from(vehicles)
-        .where(eq(vehicles.id, invoice.vehicleId))
-        .limit(1)
-    : [];
-  const [job] = await db
-    .select()
-    .from(jobs)
-    .where(eq(jobs.id, invoice.jobId))
-    .limit(1);
-  const items = await db
-    .select()
-    .from(invoiceItems)
-    .where(eq(invoiceItems.invoiceId, id))
-    .orderBy(invoiceItems.itemType);
-  const paymentList = await db
-    .select()
-    .from(payments)
-    .where(eq(payments.invoiceId, id))
-    .orderBy(desc(payments.createdAt));
-  const [business] = await db.select().from(settings).limit(1);
+  const [
+    [customer],
+    vehicleList,
+    [job],
+    items,
+    paymentList,
+    [business],
+  ] = await Promise.all([
+    db
+      .select()
+      .from(customersTable)
+      .where(eq(customersTable.id, invoice.customerId))
+      .limit(1),
+    invoice.vehicleId
+      ? db
+          .select()
+          .from(vehicles)
+          .where(eq(vehicles.id, invoice.vehicleId))
+          .limit(1)
+      : Promise.resolve([]),
+    db
+      .select()
+      .from(jobs)
+      .where(eq(jobs.id, invoice.jobId))
+      .limit(1),
+    db
+      .select()
+      .from(invoiceItems)
+      .where(eq(invoiceItems.invoiceId, id))
+      .orderBy(invoiceItems.itemType),
+    db
+      .select()
+      .from(payments)
+      .where(eq(payments.invoiceId, id))
+      .orderBy(desc(payments.createdAt)),
+    db.select().from(settings).limit(1),
+  ]);
 
   return {
     invoice,
     customer,
-    vehicle: vehicle ?? null,
+    vehicle: vehicleList[0] ?? null,
     job,
     items,
     payments: paymentList,

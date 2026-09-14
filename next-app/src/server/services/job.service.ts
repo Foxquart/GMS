@@ -20,14 +20,8 @@ export function isTerminalStatus(status: string) {
 async function nextJobNumber() {
   const year = new Date().getFullYear();
   const prefix = `JOB-${year}-`;
-  const rows = await db
-    .select({ jobNumber: jobs.jobNumber })
-    .from(jobs)
-    .where(sql`${jobs.jobNumber} like ${prefix + "%"}`)
-    .orderBy(desc(jobs.jobNumber))
-    .limit(1);
-  const last = rows[0]?.jobNumber;
-  const seq = last ? parseInt(last.split("-").pop() ?? "0", 10) + 1 : 1;
+  const res: any = await db.execute(sql`SELECT nextval('job_number_seq')::text AS seq`);
+  const seq = Number((res.rows ?? res)[0]?.seq ?? 1);
   return `${prefix}${String(seq).padStart(4, "0")}`;
 }
 
@@ -56,20 +50,40 @@ async function resolveVehicleId(
   const registrationNumber = input.registrationNumber?.trim() || undefined;
   const key = normalizeRegistration(registrationNumber);
 
-  const owned = await db
-    .select()
-    .from(vehicles)
-    .where(eq(vehicles.customerId, customerId))
-    .orderBy(desc(vehicles.createdAt));
+  let match: any;
+  if (key) {
+    const [found] = await db
+      .select()
+      .from(vehicles)
+      .where(
+        and(
+          eq(vehicles.customerId, customerId),
+          eq(vehicles.registrationNumberNormalized, key),
+        ),
+      )
+      .limit(1);
+    match = found;
+  }
 
-  const linked = linkedVehicleId ? owned.find((v: any) => v.id === linkedVehicleId) : undefined;
-  let match = key
-    ? owned.find((v: any) => normalizeRegistration(v.registrationNumber) === key)
-    : owned[0] && owned[0].vehicleType === vehicleType
-      ? owned[0]
-      : undefined;
-  if (!match && linked && !normalizeRegistration(linked.registrationNumber)) {
-    match = linked;
+  if (!match && linkedVehicleId) {
+    const [linked] = await db
+      .select()
+      .from(vehicles)
+      .where(and(eq(vehicles.id, linkedVehicleId), eq(vehicles.customerId, customerId)))
+      .limit(1);
+    if (linked && !linked.registrationNumberNormalized) {
+      match = linked;
+    }
+  }
+
+  if (!match && !key) {
+    const [recent] = await db
+      .select()
+      .from(vehicles)
+      .where(and(eq(vehicles.customerId, customerId), eq(vehicles.vehicleType, vehicleType)))
+      .orderBy(desc(vehicles.createdAt))
+      .limit(1);
+    match = recent;
   }
 
   if (match) {
@@ -80,6 +94,7 @@ async function resolveVehicleId(
     }
     if (registrationNumber && !match.registrationNumber) {
       updates.registrationNumber = registrationNumber;
+      updates.registrationNumberNormalized = key || null;
     }
     if (Object.keys(updates).length) {
       await db
@@ -97,6 +112,7 @@ async function resolveVehicleId(
       vehicleType,
       vehicleName: input.vehicleName || null,
       registrationNumber: registrationNumber ?? null,
+      registrationNumberNormalized: key || null,
     })
     .returning();
   return created.id;
@@ -208,10 +224,24 @@ export async function listJobs(opts: {
   const where = conditions.length ? and(...conditions) : undefined;
   const limit = opts.limit ?? JOBS_LIST_LIMIT;
 
-  // The count goes out beside the rows, not after them, so saying how many
-  // matched costs no extra wave of latency. It deliberately carries no
-  // per-row subqueries and no vehicle join — it only has to answer "how
-  // many", and the five correlated subqueries above are per returned row.
+  const jp = db
+    .select({
+      jobId: jobParts.jobId,
+      partsCount: sql<number>`count(*)::int`.as("parts_count"),
+    })
+    .from(jobParts)
+    .groupBy(jobParts.jobId)
+    .as("jp");
+
+  const jl = db
+    .select({
+      jobId: jobLabour.jobId,
+      labourCount: sql<number>`count(*)::int`.as("labour_count"),
+    })
+    .from(jobLabour)
+    .groupBy(jobLabour.jobId)
+    .as("jl");
+
   const [rows, [totalRow]] = await Promise.all([
     db
       .select({
@@ -226,15 +256,18 @@ export async function listJobs(opts: {
         customerPhone: customers.phone,
         vehicleType: vehicles.vehicleType,
         vehicleName: vehicles.vehicleName,
-        total: sql<string>`coalesce((select ${invoices.total} from ${invoices} where ${invoices.jobId} = ${jobs.id}), 0)`,
-        invoiceId: sql<string | null>`(select ${invoices.id} from ${invoices} where ${invoices.jobId} = ${jobs.id})`,
-        invoiceStatus: sql<string | null>`(select ${invoices.status} from ${invoices} where ${invoices.jobId} = ${jobs.id})`,
-        partsCount: sql<number>`(select count(*) from ${jobParts} where ${jobParts.jobId} = ${jobs.id})`,
-        labourCount: sql<number>`(select count(*) from ${jobLabour} where ${jobLabour.jobId} = ${jobs.id})`,
+        total: sql<string>`coalesce(${invoices.total}, '0')`,
+        invoiceId: invoices.id,
+        invoiceStatus: invoices.status,
+        partsCount: sql<number>`coalesce(${jp.partsCount}, 0)::int`,
+        labourCount: sql<number>`coalesce(${jl.labourCount}, 0)::int`,
       })
       .from(jobs)
       .innerJoin(customers, eq(jobs.customerId, customers.id))
       .leftJoin(vehicles, eq(jobs.vehicleId, vehicles.id))
+      .leftJoin(invoices, eq(invoices.jobId, jobs.id))
+      .leftJoin(jp, eq(jp.jobId, jobs.id))
+      .leftJoin(jl, eq(jl.jobId, jobs.id))
       .where(where)
       .orderBy(desc(jobs.createdAt))
       .limit(limit),

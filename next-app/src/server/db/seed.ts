@@ -38,6 +38,15 @@ export async function bootstrap() {
       role: "ADMIN",
     });
     console.log("✅ Admin user created (admin@garage.com / admin123)");
+  } else if (existingUser.role !== "ADMIN") {
+    await db
+      .update(schema.users)
+      .set({
+        role: "ADMIN",
+        passwordHash: hashPassword("admin123"),
+      })
+      .where(eq(schema.users.id, existingUser.id));
+    console.log("✅ Admin user role updated to ADMIN (admin@garage.com / admin123)");
   }
 
   const superadminEmail = "superadmin@garage.com";

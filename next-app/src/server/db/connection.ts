@@ -135,12 +135,14 @@ function createDb() {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { PGlite } = require("@electric-sql/pglite");
     // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { pg_trgm } = require("@electric-sql/pglite/contrib/pg_trgm");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { drizzle: drizzlePglite } = require("drizzle-orm/pglite");
     const dataDir = process.env.PGLITE_DATA_DIR
       ? path.resolve(/* turbopackIgnore: true */ process.env.PGLITE_DATA_DIR)
       : path.join(process.cwd(), ".pglite");
     acquireDataDirLock(dataDir);
-    const client = new PGlite(dataDir);
+    const client = new PGlite(dataDir, { extensions: { pg_trgm } });
     return drizzlePglite(client, { schema });
   }
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -317,6 +319,14 @@ export async function ensureDbSetup() {
           passwordHash: hashPassword("admin123"),
           role: "ADMIN",
         });
+      } else if (existingUser.role !== "ADMIN") {
+        await db
+          .update(schema.users)
+          .set({
+            role: "ADMIN",
+            passwordHash: hashPassword("admin123"),
+          })
+          .where(eq(schema.users.id, existingUser.id));
       }
 
       // Seed superadmin user.

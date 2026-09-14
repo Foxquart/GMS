@@ -38,8 +38,8 @@ import {
   Tile,
 } from "@/components/ui";
 import { SpotOilCan, VEHICLE_SPOT } from "@/components/illustrations";
-import { resolvePreset, toDayString } from "@/lib/date-range";
 import { cn } from "@/lib/cn";
+
 
 /** Plain grouped count — units on a shelf are never fractional. */
 const units = (n: number | null | undefined) => Number(n ?? 0).toLocaleString("en-IN");
@@ -261,42 +261,14 @@ export default function DashboardPage() {
     queryFn: () => api<any>("/api/dashboard"),
   });
 
-  // Top consumers only — the full table is a tap away on /reports. Totals come
-  // back computed across every part, so "12 parts used" stays true even though
-  // four rows are listed.
-  const {
-    data: partsUsage,
-    isLoading: loadingUsage,
-  } = useQuery({
-    queryKey: ["report", "parts-usage", "today", 4],
-    queryFn: () => {
-      // The dashboard is always today. It resolves the day here rather than
-      // asking the server for a named period, because the endpoint no longer
-      // has a vocabulary of periods — one explicit window, every caller.
-      const today = resolvePreset("today");
-      return api<any>("/api/reports/parts-usage", {
-        params: { from: toDayString(today.from), to: toDayString(today.to), limit: "4" },
-      });
-    },
-  });
+  const partsUsage = data?.partsUsage;
+  const loadingUsage = isLoading;
 
-  const {
-    data: outstandingCustomers,
-    isLoading: loadingOutstanding,
-    isError: outstandingIsError,
-    error: outstandingError,
-    refetch: refetchOutstanding,
-  } = useQuery({
-    // Five, not everyone. Unbounded, this section rendered one full-height row
-    // per debtor — forty-five of them on a real book, longer than the rest of
-    // the page put together. Its job is to name the biggest few and hand off
-    // to /customers, which the header link already does.
-    queryKey: ["report", "outstanding", OUTSTANDING_PREVIEW],
-    queryFn: () =>
-      api<any[]>("/api/reports/outstanding", {
-        params: { limit: String(OUTSTANDING_PREVIEW) },
-      }),
-  });
+  const outstandingCustomers = data?.outstandingCustomers;
+  const loadingOutstanding = isLoading;
+  const outstandingIsError = isError;
+  const outstandingError = error;
+  const refetchOutstanding = refetch;
 
   const summary = data?.summary;
 
