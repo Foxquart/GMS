@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import {
@@ -167,6 +167,11 @@ export default function JobDetailPage() {
   const [partId, setPartId] = useState("");
   const [partQty, setPartQty] = useState("1");
   const [partSearch, setPartSearch] = useState("");
+  const [partSearchDebounced, setPartSearchDebounced] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setPartSearchDebounced(partSearch.trim()), 300);
+    return () => clearTimeout(t);
+  }, [partSearch]);
   // add-labour form
   const [labourDesc, setLabourDesc] = useState("");
   const [labourAmount, setLabourAmount] = useState("");
@@ -189,15 +194,19 @@ export default function JobDetailPage() {
     error: partsError,
     refetch: refetchParts,
   } = useQuery({
-    queryKey: ["parts", "picker"],
-    // This picker filters client-side over everything it is given, so it asks
-    // for one large page. That keeps today's behaviour exactly — but it is the
-    // same ceiling the parts list just moved off, and a workshop with
-    // thousands of parts will need this to search server-side instead.
+    queryKey: ["parts", "picker", partSearchDebounced],
+    // Server searches name, part number, brand, category, sub-category,
+    // description and custom fields (attributes). The client filter below is
+    // kept as a fallback so rows already in hand still match while typing.
     queryFn: () =>
-      api<{ rows: any[] }>("/api/parts", { params: { pageSize: "100", page: "1" } }).then(
-        (r) => r.rows,
-      ),
+      api<{ rows: any[] }>("/api/parts", {
+        params: {
+          pageSize: "100",
+          page: "1",
+          ...(partSearchDebounced ? { q: partSearchDebounced } : {}),
+        },
+      }).then((r) => r.rows),
+    placeholderData: keepPreviousData,
   });
 
   const job = data?.job;
@@ -996,7 +1005,7 @@ export default function JobDetailPage() {
               <Input
                 value={partSearch}
                 onChange={(e) => setPartSearch(e.target.value)}
-                placeholder="Part name or part number"
+                placeholder="Name, number, brand, category or custom field"
                 className="pl-10"
                 aria-label="Search parts"
               />
@@ -1017,15 +1026,32 @@ export default function JobDetailPage() {
                 </div>
               ) : !(parts ?? []).length ? (
                 <p className="p-4 text-center text-xs font-semibold text-[var(--ink-muted)]">
-                  No parts in inventory yet.
+                  {partSearch.trim()
+                    ? "No parts match that search — try name, brand, category or a custom field value."
+                    : "No parts in inventory yet."}
                 </p>
               ) : (
                 (parts ?? [])
-                  .filter((p: any) =>
-                    !partSearch ||
-                    p.name.toLowerCase().includes(partSearch.toLowerCase()) ||
-                    (p.partNumber && p.partNumber.toLowerCase().includes(partSearch.toLowerCase()))
-                  )
+                  .filter((p: any) => {
+                    if (!partSearch.trim()) return true;
+                    const q = partSearch.trim().toLowerCase();
+                    const attrs: { label: string; value: string }[] = Array.isArray(p.attributes)
+                      ? p.attributes
+                      : [];
+                    return (
+                      p.name?.toLowerCase().includes(q) ||
+                      (p.partNumber && p.partNumber.toLowerCase().includes(q)) ||
+                      (p.brand && p.brand.toLowerCase().includes(q)) ||
+                      (p.categoryName && p.categoryName.toLowerCase().includes(q)) ||
+                      (p.subCategoryName && p.subCategoryName.toLowerCase().includes(q)) ||
+                      (p.description && p.description.toLowerCase().includes(q)) ||
+                      attrs.some(
+                        (a) =>
+                          a.label?.toLowerCase().includes(q) ||
+                          a.value?.toLowerCase().includes(q),
+                      )
+                    );
+                  })
                   .map((p: any) => {
                     const selected = partId === p.id;
                     return (
@@ -1050,13 +1076,32 @@ export default function JobDetailPage() {
                             <Package size={16} />
                           </span>
                           <span className="min-w-0">
-                            <span className="block truncate text-xs font-extrabold text-[var(--ink)]">
+                            <span
+                              className="block break-words text-xs font-extrabold text-[var(--ink)]"
+                              title={p.name}
+                            >
                               {p.name}
                             </span>
-                            <span className="block truncate text-[11px] font-semibold text-[var(--ink-muted)]">
-                              {p.partNumber ? `#${p.partNumber}` : "No part number"} ·{" "}
+                            <span className="block break-words text-[11px] font-semibold text-[var(--ink-muted)]">
+                              {p.partNumber ? `#${p.partNumber}` : "No part number"}
+                              {p.brand ? ` · ${p.brand}` : ""}
+                              {p.categoryName ? ` · ${p.categoryName}` : ""}
+                              {p.subCategoryName ? ` / ${p.subCategoryName}` : ""} ·{" "}
                               {currency(p.sellingPrice || p.unitPrice || 0)}
                             </span>
+                            {Array.isArray(p.attributes) && p.attributes.length > 0 && (
+                              <span className="mt-1 flex flex-wrap gap-1">
+                                {p.attributes.slice(0, 3).map((a: any, i: number) => (
+                                  <span
+                                    key={i}
+                                    className="inline-block max-w-full truncate rounded-full bg-[var(--surface-sunk)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--ink-muted)]"
+                                    title={`${a.label}: ${a.value}`}
+                                  >
+                                    {a.label ? `${a.label}: ` : ""}{a.value}
+                                  </span>
+                                ))}
+                              </span>
+                            )}
                           </span>
                         </span>
                         <span className="flex shrink-0 items-center gap-1.5">

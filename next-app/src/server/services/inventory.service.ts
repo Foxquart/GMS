@@ -289,7 +289,7 @@ export async function listParts(opts: {
   if (opts.q) {
     const like = `%${opts.q.toLowerCase()}%`;
     conditions.push(
-      sql`(lower(${parts.name}) like ${like} or lower(coalesce(${parts.partNumber},'')) like ${like} or lower(coalesce(${parts.brand},'')) like ${like})`,
+      sql`(lower(${parts.name}) like ${like} or lower(coalesce(${parts.partNumber},'')) like ${like} or lower(coalesce(${parts.brand},'')) like ${like} or lower(coalesce(${parts.description},'')) like ${like} or lower(coalesce(${categories.name},'')) like ${like} or lower(coalesce(${subCategories.name},'')) like ${like} or lower(${parts.attributes}::text) like ${like})`,
     );
   }
   // "Low" means under the minimum but not yet empty, so the two are disjoint —
@@ -328,7 +328,9 @@ export async function listParts(opts: {
       .leftJoin(shopLoc, sql`${shopLoc.code} = 'SHOP'`)
       .leftJoin(whLoc, sql`${whLoc.code} = 'WAREHOUSE'`)
       .leftJoin(shopBal, and(eq(shopBal.partId, parts.id), eq(shopBal.locationId, shopLoc.id)))
-      .leftJoin(whBal, and(eq(whBal.partId, parts.id), eq(whBal.locationId, whLoc.id))) as T;
+      .leftJoin(whBal, and(eq(whBal.partId, parts.id), eq(whBal.locationId, whLoc.id)))
+      .leftJoin(categories, eq(parts.categoryId, categories.id))
+      .leftJoin(subCategories, eq(parts.subCategoryId, subCategories.id)) as T;
 
   const [countRow] = await withJoins<any>(
     db.select({ total: sql<number>`count(*)::int` }),
@@ -350,6 +352,8 @@ export async function listParts(opts: {
       categoryName: categories.name,
       subCategoryId: parts.subCategoryId,
       subCategoryName: subCategories.name,
+      description: parts.description,
+      attributes: parts.attributes,
       sellingPrice: parts.sellingPrice,
       purchasePrice: parts.purchasePrice,
       minimumShopStock: parts.minimumShopStock,
@@ -360,8 +364,6 @@ export async function listParts(opts: {
       warehouseStock: whQty,
     }),
   )
-    .leftJoin(categories, eq(parts.categoryId, categories.id))
-    .leftJoin(subCategories, eq(parts.subCategoryId, subCategories.id))
     .where(where)
     .orderBy(...orderBy)
     .limit(pageSize)
