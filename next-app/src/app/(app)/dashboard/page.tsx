@@ -332,9 +332,9 @@ export default function DashboardPage() {
 
       <SectionHeader
         className="mb-0"
-        title="Today"
-        icon={<IndianRupee size={18} />}
-        action={<SectionLink href="/reports">Full report</SectionLink>}
+        title=""
+        // icon={<IndianRupee size={18} />}
+        // action={<SectionLink href="/reports">Full report</SectionLink>}
       />
 
       {/* ── Today, at a squint ───────────────────────────────────────

@@ -16,6 +16,8 @@ export type Part = {
   categoryName: string | null;
   subCategoryId: string | null;
   subCategoryName: string | null;
+  description: string | null;
+  attributes: { label: string; value: string }[];
   sellingPrice: string | null;
   unit: string | null;
   minimumShopStock: number;

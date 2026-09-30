@@ -258,7 +258,7 @@ export function RegistrationInput({
         )}
       >
         {/* State — a select, so the first two characters never raise a keyboard. */}
-        <div className="relative shrink-0">
+        <div className="relative w-46 shrink-0">
           <select
             id={id}
             aria-label="State code"
@@ -269,7 +269,7 @@ export function RegistrationInput({
               districtRef.current?.focus();
             }}
             className={cn(
-              "h-11 appearance-none bg-transparent pl-3.5 pr-6",
+              "h-11 w-full appearance-none bg-transparent pl-3 pr-5 truncate",
               "text-sm font-extrabold text-[var(--ink)] cursor-pointer focus:outline-none",
             )}
           >
