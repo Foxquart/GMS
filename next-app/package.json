@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed:demo": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/seed-demo.ts",
+    "users": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/users.ts",
     "db:setup": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/db-setup.ts",
     "db:clean": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/db-clean.ts"
   },
