@@ -19,22 +19,66 @@ import { hashPassword } from "../src/server/lib/password";
 const ROLES = ["ADMIN", "SUPERADMIN"] as const;
 type Role = (typeof ROLES)[number];
 
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+let rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
 function ask(question: string, hidden = false): Promise<string> {
   return new Promise((resolve) => {
-    if (!hidden) {
+    if (!hidden || !process.stdin.isTTY) {
+      // Piped input (or a non-password question): plain readline. Hidden
+      // prompts fall back to visible here because masking needs a TTY.
       rl.question(question, (ans) => resolve(ans.trim()));
       return;
     }
-    // Hide password input: suppress echo while typing.
-    const origWrite = (rl as any)._writeToOutput;
-    (rl as any)._writeToOutput = () => {};
-    rl.question(question, (ans) => {
-      (rl as any)._writeToOutput = origWrite;
+    // Masked input: one * per character, backspace aware, arrow keys
+    // ignored. The readline interface is closed first so it cannot buffer
+    // these keystrokes and replay them into the next question; a fresh one
+    // is created once the password is done.
+    rl.close();
+    process.stdout.write(question);
+    const stdin = process.stdin;
+    let value = "";
+    let esc = false;
+    stdin.setRawMode(true);
+    stdin.resume();
+    const finish = () => {
+      stdin.removeListener("data", onData);
+      if (stdin.isTTY) stdin.setRawMode(false);
+      rl = readline.createInterface({ input: process.stdin, output: process.stdout });
       process.stdout.write("\n");
-      resolve(ans.trim());
-    });
+      resolve(value.trim());
+    };
+    const onData = (chunk: Buffer) => {
+      for (const char of chunk.toString("utf8")) {
+        if (esc) {
+          if (/[a-zA-Z]/.test(char)) esc = false;
+          continue;
+        }
+        if (char === "\x1b") {
+          esc = true;
+          continue;
+        }
+        if (char === "\r" || char === "\n") {
+          finish();
+          return;
+        }
+        if (char === "\u0003") {
+          process.stdout.write("\n");
+          process.exit(130);
+        }
+        if (char === "\u007f" || char === "\b") {
+          if (value.length) {
+            value = value.slice(0, -1);
+            process.stdout.write("\b \b");
+          }
+          continue;
+        }
+        if (char >= " ") {
+          value += char;
+          process.stdout.write("*");
+        }
+      }
+    };
+    stdin.on("data", onData);
   });
 }
 
